@@ -1,0 +1,12 @@
+{
+  "name": "realpixelart-web",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "build": "node build.mjs",
+    "start": "node serve.mjs"
+  }
+}

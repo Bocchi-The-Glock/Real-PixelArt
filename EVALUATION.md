@@ -1,3 +1,7 @@
+# 评估记录
+
+最新：[原生 JavaScript 网页迁移与速度实测（2026-09-28）](docs/WEB_MIGRATION.md)。下面保留历史算法评估，其模块名称、网页运行时和计时属于对应日期的版本。
+
 # 普通图片像素化评估（2026-09-19）
 
 本次比较的是 **RealPixelArt 原网格恢复（`photo_mode=off`）与 RealPixelArt 新默认行为（`auto`）**，不是与 perfectPixel-main 比较。原 `grid.py`、`features.py`、`sampling.py` 未修改，新增逻辑集中在 `natural.py`。

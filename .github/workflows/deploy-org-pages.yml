@@ -37,13 +37,18 @@ jobs:
       - name: Run regression tests
         run: python -m pytest src/tests/test_realpixelart.py -q
 
-      - name: Build website
-        run: |
-          python web/build.py
-          python web/build.py --check
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
 
-      - name: Verify runtime and prepare static files
-        run: python .github/scripts/prepare_pages.py
+      - name: Verify JavaScript algorithm against Python reference
+        run: |
+          python scripts/export_web_reference.py
+          npm --prefix web test
+
+      - name: Build static website
+        run: node web/build.mjs --out build/pages
 
       - name: Check deployment credential
         env:

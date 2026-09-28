@@ -48,7 +48,7 @@ const messages = {
   failed: ['处理失败：{detail}', 'Processing failed: {detail}'],
   memoryFailed: ['浏览器处理内存不足，已释放引擎内存。可以重新处理较小图片；超大原图建议使用本地 Python 版本。', 'Browser processing memory exhausted; engine memory released. Retry with a smaller image, or use desktop Python for very large originals.'],
   httpRequired: ['请通过 localhost 或 HTTPS 静态服务打开网页。', 'Open this page through a localhost or HTTPS static server.'],
-  syncRequired: ['请运行 python web/build.py 同步算法文件。', 'Run python web/build.py to synchronize the core files.'],
+  syncRequired: ['请运行 node web/build.mjs 更新网页资源清单。', 'Run node web/build.mjs to update the web resource manifest.'],
 };
 export function preference(key, value) {
   try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch { /* Storage can be disabled. */ }

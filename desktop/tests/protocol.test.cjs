@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '../test-results/protocol-fixture');
 
 test('asset paths stay inside the static bundle', () => {
   assert.equal(assetPath(root, 'pixelart://app/'), path.join(root, 'index.html'));
-  assert.equal(assetPath(root, 'pixelart://app/vendor/a.wasm'), path.join(root, 'vendor/a.wasm'));
+  assert.equal(assetPath(root, 'pixelart://app/core/grid.js'), path.join(root, 'core/grid.js'));
   for (const url of ['https://app/index.html', 'pixelart://other/index.html',
     'pixelart://user@app/index.html', 'pixelart://app/%2e%2e%2fsecret',
     'pixelart://app/%5csecret', 'pixelart://app/C%3A/secret', 'pixelart://app/a%00b']) {
@@ -15,16 +15,17 @@ test('asset paths stay inside the static bundle', () => {
   }
 });
 
-test('handler supports Worker/WASM MIME, HEAD and missing files without path disclosure', async () => {
+test('handler supports module Worker MIME, HEAD and missing files without path disclosure', async () => {
   await fs.mkdir(root, { recursive: true });
   await fs.writeFile(path.join(root, 'index.html'), '<h1>local</h1>');
-  await fs.writeFile(path.join(root, 'a.wasm'), Buffer.from([0, 97, 115, 109]));
+  await fs.writeFile(path.join(root, 'worker.js'), 'export {};');
   const handle = assetHandler(root);
-  const wasm = await handle(new Request('pixelart://app/a.wasm'));
-  assert.equal(wasm.headers.get('content-type'), 'application/wasm');
-  assert.equal(wasm.headers.get('content-length'), '4');
-  assert.equal((await wasm.arrayBuffer()).byteLength, 4);
-  assert.match(wasm.headers.get('content-security-policy'), /connect-src 'self'/);
+  const worker = await handle(new Request('pixelart://app/worker.js'));
+  assert.equal(worker.headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.equal(worker.headers.get('content-length'), '10');
+  assert.equal(await worker.text(), 'export {};');
+  assert.match(worker.headers.get('content-security-policy'), /connect-src 'self'/);
+  assert.doesNotMatch(worker.headers.get('content-security-policy'), /unsafe-eval/);
   const head = await handle(new Request('pixelart://app/', { method: 'HEAD' }));
   assert.equal(head.status, 200); assert.equal(await head.text(), '');
   assert.equal((await handle(new Request('pixelart://app/missing'))).status, 404);

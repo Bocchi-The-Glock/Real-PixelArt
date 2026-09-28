@@ -341,7 +341,7 @@ function showResult(data) {
 }
 function getWorker() {
   if (!worker) {
-    const activeWorker = new Worker(new URL('./worker.js', import.meta.url));
+    const activeWorker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
     worker = activeWorker;
     worker.onmessage = ({ data }) => {
       if (worker !== activeWorker) return;
@@ -379,7 +379,7 @@ function getWorker() {
       }
       if (data.type === 'error') {
         if (data.code === 'memory') {
-          // Release the entire Wasm heap and any traceback-held arrays. A later
+          // Release the worker and its image buffers. A later
           // request creates a fresh engine, including recoloring/export retries.
           worker.terminate(); worker = null;
           engine = { state: 'idle', key: 'starting', detail: '' };

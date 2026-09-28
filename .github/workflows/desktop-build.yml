@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install shared Python build dependencies
+      - name: Install Python reference-test dependencies
         run: python -m pip install -r ../.github/requirements-ci.txt
       - uses: actions/setup-node@v6
         with:

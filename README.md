@@ -60,7 +60,7 @@ python realpixelart.py -i input/lastTour.png --colors 32 --scale 4 --debug
 
 ## 算法
 
-处理分为四步，网页与桌面版共用同一套 Python 核心：
+处理分为四步。网页和桌面版使用原生 JavaScript，Python API 保留独立实现；两者通过相同输入的网格与像素对照测试保持一致：
 
 1. 分别计算横纵方向的颜色与透明度变化，完全透明像素的隐藏 RGB 不参与颜色判断
 2. 结合 FFT 的周期线索和边缘间距提出候选，同时比较半倍、两倍间距，搜索网格起点，并做小范围局部校正。FFT 不直接决定最终格距

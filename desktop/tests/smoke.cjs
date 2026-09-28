@@ -69,7 +69,7 @@ if (packaged && !process.env.PIXELART_EXECUTABLE) {
     for (const [i, item] of cases.entries()) {
       const input = fs.readFileSync(path.join(project, 'input', item.name)).toString('base64');
       const result = await page.evaluate(async ({ input, item }) => {
-        const worker = new Worker('./worker.js');
+        const worker = new Worker('./worker.js', { type: 'module' });
         try {
           const output = await new Promise((resolve, reject) => {
             worker.onmessage = ({ data }) => {
@@ -100,12 +100,46 @@ if (packaged && !process.env.PIXELART_EXECUTABLE) {
         item.once('done', (_event, state) => globalThis.testDownloads.push({ target, state, options }));
       });
     }, out);
+    await page.evaluate(() => {
+      window.engineRequests = []; window.colorReplies = [];
+      const send = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (data, ...rest) {
+        window.engineRequests.push(data.type);
+        if (!this.testObserved) {
+          this.testObserved = true;
+          this.addEventListener('message', ({ data: response }) => {
+            if (response.type === 'recolor') window.colorReplies.push(response.meta);
+          });
+        }
+        return send.call(this, data, ...rest);
+      };
+    });
     await page.setInputFiles('#file-input', path.join(project, 'input/lastTour.png'));
     console.log('Uploaded lastTour; generating...');
     await page.click('#run');
     await page.waitForFunction(() => !document.querySelector('#download').disabled, null, { timeout: 90000 });
     assert.equal(await page.locator('#metric-grid').textContent(), '331 × 219');
     assert.equal(await page.locator('#result-size').textContent(), '331 × 219');
+    // Real color controls must use the cached unlimited output, never rerun detection.
+    await page.locator('#colors').focus(); await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => window.colorReplies.length >= 1);
+    assert.equal(await page.evaluate(() => window.colorReplies.at(-1).color_processing.output_colors), 2);
+    await page.locator('#colors-number').fill('8'); await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.colorReplies.length >= 2);
+    assert.equal(await page.evaluate(() => window.colorReplies.at(-1).color_processing.output_colors), 8);
+    await page.locator('#color-mode').selectOption('rgb');
+    await page.waitForFunction(() => window.colorReplies.length >= 3);
+    await page.locator('#use-palette').check();
+    await page.waitForFunction(() => window.colorReplies.length >= 4);
+    await page.locator('#palette').selectOption('MARD24');
+    await page.waitForFunction(() => window.colorReplies.length >= 5);
+    assert.equal(await page.evaluate(() => window.colorReplies.at(-1).color_processing.palette), 'MARD24');
+    await page.locator('#use-palette').uncheck();
+    await page.waitForFunction(() => window.colorReplies.length >= 6);
+    await page.locator('#colors').focus(); await page.keyboard.press('Home');
+    await page.waitForFunction(() => window.colorReplies.length >= 7);
+    assert.equal(await page.evaluate(() => window.colorReplies.at(-1).color_processing.applied), false);
+    assert.equal(await page.evaluate(() => window.engineRequests.filter(type => type === 'process').length), 1);
     const preview = await page.locator('#result-image').getAttribute('src');
     for (const scale of [2, 16, 1]) {
       await page.locator('#scale').fill(String(scale));
@@ -147,13 +181,19 @@ from realpixelart import pixelize,Config
 for i,c in enumerate(json.loads((out/'cases.json').read_text())):
  r=pixelize(root/'input'/c['name'],Config(**c['config']))
  np.testing.assert_array_equal(Image.open(out/f'case-{i}.png').convert('RGBA'),r.image.convert('RGBA'))
- assert c['grid']==r.grid
+ assert c['grid'].keys()==r.grid.keys()
+ for key,value in r.grid.items():
+  if isinstance(value,float):
+   np.testing.assert_allclose(c['grid'][key],value,rtol=0,atol=1e-6,err_msg=key)
+  else:
+   assert c['grid'][key]==value,key
 r=pixelize(root/'input/lastTour.png')
 np.testing.assert_array_equal(Image.open(out/'lastTour.png').convert('RGBA'),r.image.resize((993,657),Image.Resampling.NEAREST).convert('RGBA'))
 with zipfile.ZipFile(out/'lastTour_debug.zip') as z:
  info=json.loads(z.read('output/debug/lastTour/info.json'))
  assert info['grid']['output_size']==[331,219]
  assert len([p for p in z.namelist() if p.endswith('.png')])==5
+ assert info['diagnostics']['color_processing']['applied'] is False
 print('PASS: output pixels and grid match Python; native 3x PNG and diagnostic ZIP verified.')
 `;
     console.log(execFileSync(process.env.PYTHON || 'python', ['-c', verify, project, out], { encoding: 'utf8' }));

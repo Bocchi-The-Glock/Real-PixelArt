@@ -100,9 +100,9 @@ async function launch(name, check) {
   const bytes = fs.readFileSync(file); bytes[0] ^= 1; fs.writeFileSync(file, bytes);
   await launch('same-size corruption repaired');
   assert.equal(createHash('sha256').update(fs.readFileSync(file)).digest('hex'), expected);
-  fs.unlinkSync(path.join(cache, 'resources/web/core.zip'));
+  fs.unlinkSync(path.join(cache, 'resources/web/core/pipeline.js'));
   await launch('missing engine file repaired');
-  assert.ok(fs.existsSync(path.join(cache, 'resources/web/core.zip')));
+  assert.ok(fs.existsSync(path.join(cache, 'resources/web/core/pipeline.js')));
 
   // Distinguish owned obsolete caches from unrelated files before deleting.
   const old = path.join(root, 'realpixelart-0.0.0-x64-' + '0'.repeat(20));

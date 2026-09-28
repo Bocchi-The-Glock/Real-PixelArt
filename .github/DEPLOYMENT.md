@@ -22,15 +22,15 @@ git remote set-url origin https://github.com/Bocchi-The-Glock/Real-PixelArt.git
 Bocchi-The-Glock/Real-PixelArt 的 main 分支收到 push
   → 安装 Python 3.12 和固定版本依赖
   → 运行 src/tests/test_realpixelart.py
-  → web/build.py 同步最新 Python 核心
-  → 校验算法包、Pyodide、NumPy / Pillow 及许可证
+  → 生成 Python 参考结果，验证原生 JS 与 Python 的网格和像素一致
+  → node web/build.mjs 校验并构建原生 JavaScript 网站
   → 将 build/pages 的内容推送到目标仓库 gh-pages 分支
   → 目标仓库的 GitHub Pages 发布 https://realpixelart.github.io/
 ```
 
-源仓库保留完整项目：`.github/`、`src/`、`input/`、`web/`、`realpixelart.py`、`pyproject.toml` 等。不要只上传 web；测试需要 input 中的 6 张图片，构建需要 input/lastTour.png 和 src/realpixelart。
+源仓库保留完整项目：`.github/`、`scripts/`、`src/`、`input/`、`web/`、`realpixelart.py`、`pyproject.toml` 等。CI 的参考测试需要 Python 源码和 input 图片；静态网站本身只需要 web 中的发布资源。
 
-目标仓库 `RealPixelArt/RealPixelArt.github.io` 接收网页成品。发布目录根部就是 index.html，同时包含前端 JS/CSS、core.zip、core-manifest.json、assets、vendor 和 .nojekyll。不会把开发脚本、测试或 input/output 文件夹复制到网站。
+目标仓库 `RealPixelArt/RealPixelArt.github.io` 接收网页成品。发布目录根部就是 index.html，同时包含前端 JS/CSS、core/、core-manifest.json、assets 和 .nojekyll。不会把开发脚本、测试或 input/output 文件夹复制到网站。
 
 ## 一、创建跨仓库令牌
 
@@ -56,11 +56,11 @@ Bocchi-The-Glock/Real-PixelArt 的 main 分支收到 push
 
 令牌的授权对象是**目标仓库**，保存 Secret 的位置是**源码仓库**。不要把令牌写进 YAML、提交记录或聊天。
 
-源码仓库的 **Settings → Actions → General** 需要允许 workflow 使用 `actions/checkout`、`actions/setup-python` 和 `peaceiris/actions-gh-pages`。当前 workflow 的内置 GITHUB_TOKEN 只需 `contents: read`；跨仓库写入使用 ORG_PAGES_TOKEN。
+源码仓库的 **Settings → Actions → General** 需要允许 workflow 使用 `actions/checkout`、`actions/setup-python`、`actions/setup-node` 和 `peaceiris/actions-gh-pages`。当前 workflow 的内置 GITHUB_TOKEN 只需 `contents: read`；跨仓库写入使用 ORG_PAGES_TOKEN。
 
 ## 三、首次推送，先生成 gh-pages 分支
 
-将 `.github/workflows/deploy-org-pages.yml`、`.github/requirements-ci.txt`、`.github/scripts/prepare_pages.py` 和本说明提交到**源码仓库的 main 分支**。已有网页或 Python 修改也按你的发布需要提交。
+将 `.github/workflows/deploy-org-pages.yml`、`.github/requirements-ci.txt`、`web/build.mjs` 和本说明提交到**源码仓库的 main 分支**。已有网页或 Python 修改也按你的发布需要提交。
 
 注意 workflow 必须位于 GitHub 仓库根部的 `.github/workflows/`；不能外面再套一层 real_pixel_art 文件夹。
 
@@ -88,7 +88,7 @@ Bocchi-The-Glock/Real-PixelArt 的 main 分支收到 push
 
 每次向源码仓库 **main** 推送，或将 PR 合并进 main，都会运行检查并更新网页。其他分支的 push 不发布；手动运行也应选择 main。快速连续推送会串行处理，GitHub 可能合并等待中的旧任务，最终发布最新一次更新。
 
-修改 Python 后不用手工更新算法压缩包再上传目标仓库：CI 会重新运行 web/build.py。vendor 已随源仓库提交，CI 校验现有运行时，不依赖每次从 CDN 重新下载。若更新运行时版本，应在开发环境重新执行 `python web/build.py --runtime`，检查清单与许可证后一起提交 vendor。
+网页已迁移到原生 JavaScript。修改算法时同步 `src/realpixelart` 与 `web/core`，用 `python scripts/export_web_reference.py` 和 `npm --prefix web test` 检查一致性。CI 测试后执行 `node web/build.mjs --out build/pages`；无需 Python 运行时、vendor 或算法压缩包。
 
 构建或测试失败时，不执行推送，已部署网站仍保留前一次版本。发布步骤设置了 `allow_empty_commit: true`：即使网页成品没有变化，也会向目标分支提交并推送一次，便于在首次启用 Pages 或修复设置后重新触发发布。这只增加部署记录，不会重复存储一整份相同的网页文件。
 
@@ -105,18 +105,18 @@ Pages 设置中的 “currently being built from the gh-pages branch” 只说�
 
 ## 本地复现构建
 
-在项目根目录、Python 3.12 环境运行：
+在项目根目录，使用 Python 3.12（参考测试）和 Node.js 22 运行：
 
 ```powershell
 python -m pip install -r .github/requirements-ci.txt
 python -m pytest src/tests/test_realpixelart.py -q
-python web/build.py
-python web/build.py --check
-python .github/scripts/prepare_pages.py
+python scripts/export_web_reference.py
+npm --prefix web test
+node web/build.mjs --out build/pages
 python -m http.server 8765 --bind 127.0.0.1 --directory build/pages
 ```
 
-`build/pages` 是可重复生成的成品目录，每次 prepare_pages.py 都会替换它；build 已被 gitignore 排除。CI 执行 Python 回归及资源完整性检查，浏览器交互回归仍按 web/README.md 单独运行。
+`build/pages` 是可重复生成的成品目录，每次 build.mjs --out 都会替换它；build 已被 gitignore 排除。CI 执行 Python 回归、JS 对照测试及资源完整性检查，浏览器交互回归仍按 web/README.md 单独运行。
 
 ## 常见失败位置
 
@@ -126,10 +126,10 @@ python -m http.server 8765 --bind 127.0.0.1 --directory build/pages
 | 提示缺少 ORG_PAGES_TOKEN | Secret 必须放源码仓库；名称完全一致；不要建成 Variable |
 | 推送目标仓库报 403 / permission denied | 令牌是否过期；Resource owner/仓库选错；Contents 是否 Read and write；组织是否待审批；gh-pages 的 Rulesets 是否阻止直接推送 |
 | Pytest 失败 | 读取失败项日志；先修复再发布，不跳过测试掩盖失败 |
-| Missing / checksum mismatch | 检查 vendor 是否完整提交；排查 Git LFS 指针文件和误改；恢复对应文件后重新构建 |
+| Missing / checksum mismatch | 检查 web/core 是否完整提交；运行 node web/build.mjs 更新资源清单 |
 | 源仓库 Actions 成功，网站仍 404 | 目标仓库 Pages 是否选 gh-pages / root，目标仓库部署是否成功 |
 | 已选 gh-pages，目标 Actions 仍为空 | 检查目标 Actions/组织策略是否允许；提交 allow_empty_commit 修改后重新 Run workflow；确认目标最新提交确实更新，再检查推送账号的管理员权限和邮箱验证 |
-| 主页能开但一直加载算法 | 浏览器 Network 检查 core.zip、core-manifest.json、vendor/pyodide/*.wasm 和 wheel 是否 200；强制刷新 |
+| 主页能开但一直加载算法 | 浏览器 Network 检查 worker.js、core/*.js、core/palettes.json 和 core-manifest.json 是否 200；强制刷新 |
 | 页面仍是旧版 | 确认修改已推送到源仓库 main，查看两个仓库最新部署，再 Ctrl+F5 |
 
 ## 参考

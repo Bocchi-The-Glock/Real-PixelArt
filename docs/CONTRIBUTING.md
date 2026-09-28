@@ -1,7 +1,8 @@
 # Contributing to RealPixelArt
 
-The Python API, website and desktop app share one implementation. Start at
-`pipeline.pixelize()` to see the processing order.
+The Python API and browser engine implement the same stages. The website and
+Electron app share the JavaScript engine; neither ships a Python interpreter.
+Start at `pipeline.pixelize()` (Python) or `core/pipeline.js` (JavaScript).
 
 ## Five functional modules
 
@@ -65,8 +66,10 @@ From the project root:
 python -m pip install -e ".[test]"
 python -m pytest src/tests/test_realpixelart.py -q
 python realpixelart.py -i input/lastTour.png --debug
-python web/build.py
-python web/build.py --check
+python scripts/export_web_reference.py
+npm --prefix web test
+node web/build.mjs
+node web/build.mjs --check
 cd desktop
 npm ci
 npm test
@@ -78,8 +81,11 @@ confidence and diagnostics on the same real and synthetic inputs. Measure
 performance separately: warm up both versions, alternate execution order and
 report repeated measurements with the environment. Preserve slow results too.
 
-Commit `web/core.zip` and `web/core-manifest.json` with core changes. The existing
-desktop executable needs rebuilding for a new release.
+Commit the JavaScript source and updated `web/core-manifest.json` with changes.
+The existing desktop executable needs rebuilding for a new release. See
+[web architecture](../web/README.md) for the module map and parity constraints.
+Python is used only for reference tests during development/CI; building or
+running the static website does not require Python.
 
 ## Internal import migration
 

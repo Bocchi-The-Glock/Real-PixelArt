@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "pyodide": "0.26.4",
+  "engine": "javascript",
   "defaults": {
     "colors": null,
     "palette": null,
@@ -10,8 +10,8 @@
     "alpha_mode": "auto",
     "local_warp": "auto",
     "photo_mode": "auto",
-    "min_pixel_size": 2.0,
-    "max_pixel_size": 64.0,
+    "min_pixel_size": 2,
+    "max_pixel_size": 64,
     "square": false,
     "confidence_threshold": 0.45
   },
@@ -89,16 +89,71 @@
       "unique_colors": 275
     }
   ],
-  "bundle_sha256": "48c5049a999748468e5ba041054a0f46a358fe20f68ce0420f69e4d8b99c314d",
+  "bundle_sha256": "1e27a832b0767d0b0845f810f1f43e58a74aa3feb1723d9e77fc0e8ac997500a",
   "files": {
-    "realpixelart/__init__.py": "9af32a5108169909e7b352053171f6ead20ffff7e00613d4639aa2be180ad954",
-    "realpixelart/__main__.py": "2235ad4ea118d05d81c30d03e8e413402a9d5457091fd7cf79b121ece207251a",
-    "realpixelart/config.py": "8da5c7f83a538433fa1119d1b1af27d99e370ffad88abfbebd11a1d2ccbb8b87",
-    "realpixelart/grid.py": "905a83b22b17adedfce4fec33620e20a994705bd0c1b52556ed5cc93dd1ecb89",
-    "realpixelart/pipeline.py": "d46609e2d2c9aff870a3f369322de5351cd46618e87345b44cb828e738f6a718",
-    "realpixelart/sampling.py": "cb19b2399e60d6caf3152d9e1f9bb96c62f748f0c2eb28787deded1b0fb45e94",
-    "realpixelart/tools.py": "0e3d8105d7767799bb927e9a06e6acbdb6f4edbfecb0603c31f0484e6d90ae6d",
-    "realpixelart/palettes.json": "7bb56bc408bb861f6850ef9ba0620b686cdc09396330910033430e2b67df9b0a",
-    "web_bridge.py": "e32dfbf787a16abf9c2831e6456e968f301299b31d62a03c98b615dff89ab65c"
+    "app.js": {
+      "sha256": "05e7b3e4998066edb70a98ce864d76f961eaa0ce3d7333e6ab33060004992f05",
+      "bytes": 27864
+    },
+    "assets/demo.png": {
+      "sha256": "7a1d499462b799ee1529bbabab813e13e9ecc1b069a625a5e8dc19b0fc3fe634",
+      "bytes": 1746507
+    },
+    "assets/favicon.svg": {
+      "sha256": "77c5cdefb5d837fc47b0bcab85a38bdd63721eb96ce9052e5e98b88f255a732f",
+      "bytes": 196
+    },
+    "core/config.js": {
+      "sha256": "6fc4098083c2be51a8fc791b9eb5c04dc72485699f325ca84cff81cff9438523",
+      "bytes": 2265
+    },
+    "core/diagnostics.js": {
+      "sha256": "f8eb7448a0085ad2227f930072aa5433853ed5c38ef0d3dd7ad638bc99957973",
+      "bytes": 11489
+    },
+    "core/features.js": {
+      "sha256": "88388616b12a69e2951df41d45eb23357db5916286e9ddf1235335f7471481ad",
+      "bytes": 15976
+    },
+    "core/grid.js": {
+      "sha256": "2d3a61257006fef674dfcaac66edd92f49abe55591d0422c4bb252c3c22ff2af",
+      "bytes": 30396
+    },
+    "core/numeric.js": {
+      "sha256": "6490bb74306e1cef86efd9148bbcb57ad6cbd8785edd816c0b53db055dfca883",
+      "bytes": 12792
+    },
+    "core/palettes.json": {
+      "sha256": "7bb56bc408bb861f6850ef9ba0620b686cdc09396330910033430e2b67df9b0a",
+      "bytes": 108599
+    },
+    "core/pipeline.js": {
+      "sha256": "50cbc71d497559dc67dbfbda2888328321aac541f644ae4f5d9d830f0668b9fd",
+      "bytes": 5028
+    },
+    "core/sampling.js": {
+      "sha256": "587bc24fe9037b3baa3e2b3586c00f9515511323856ef669b000480708d4f053",
+      "bytes": 21919
+    },
+    "core/tools.js": {
+      "sha256": "de9d6d38ca95649f95b090cd9121c7a305564c2823dbdf25c6fb24fec33373ae",
+      "bytes": 21463
+    },
+    "i18n.js": {
+      "sha256": "ba6ead23b31437144fddb872b9084927bab98b72c41b9a141604a43b70914e8f",
+      "bytes": 7499
+    },
+    "index.html": {
+      "sha256": "0bec4b79e34caaacd6e7d108e35edfdbcd83ca61c357518b5175321cb540d153",
+      "bytes": 13085
+    },
+    "styles.css": {
+      "sha256": "be06b0a473a7de9cca7a1536b4b4ec7185a49f2c8ccc6eefeced38326910c1cf",
+      "bytes": 16053
+    },
+    "worker.js": {
+      "sha256": "1a50d92056d78efa6cd5e139d890cd386c647a4e19e7565004d2ae73a0069ae3",
+      "bytes": 4934
+    }
   }
 }

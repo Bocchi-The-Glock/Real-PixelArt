@@ -5,10 +5,10 @@ const ORIGIN = 'pixelart://app';
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.wasm': 'application/wasm', '.zip': 'application/zip',
+  '.zip': 'application/zip',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8',
 };
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; " +
+const CSP = "default-src 'self'; script-src 'self'; " +
   "worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; " +
   "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'";
 

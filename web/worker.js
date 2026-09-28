@@ -1,103 +1,76 @@
-/* Image processing runs only in this browser worker. No requests contain images. */
-let bootPromise;
-let busy = false;
-const progress = (key, id) => self.postMessage({ type: 'progress', key, id });
+/* Native JavaScript worker. Input images never leave this browser. */
+import { pixelize } from './core/pipeline.js';
+import { processColors } from './core/sampling.js';
+import { decodeImage, decodePng, encodePng } from './core/tools.js';
+import { configuration, validateScale } from './core/config.js';
+import { drawDiagnostics, diagnosticFiles, diagnosticZip, recolorDiagnostics, runtime } from './core/diagnostics.js';
 
-async function checkedFetch(url) {
-  const response = await fetch(url, { cache: 'no-cache' });
-  if (!response.ok) throw new Error(`Cannot load local resource ${url} (${response.status})`);
-  return response;
+let bootPromise, busy = false;
+const progress = (key,id) => self.postMessage({type:'progress',key,id});
+async function resource(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Cannot load local resource '+url+' ('+response.status+')');
+  return response.json();
 }
-
-async function initialize() {
-  if (!self.crypto?.subtle) throw new Error('HTTPS or localhost is required.');
-  progress('starting');
-  importScripts('./vendor/pyodide/pyodide.js');
-  const py = await loadPyodide({ indexURL: new URL('./vendor/pyodide/', self.location.href).href });
-  progress('loading');
-  await py.loadPackage(['numpy', 'pillow']);
-  const manifest = await (await checkedFetch('./core-manifest.json')).json();
-  const archive = await (await checkedFetch('./core.zip')).arrayBuffer();
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', archive)),
-    (n) => n.toString(16).padStart(2, '0')).join('');
-  if (hash !== manifest.bundle_sha256) throw new Error('Core version mismatch. Refresh or rebuild web/core.zip.');
-  py.unpackArchive(archive, 'zip', { extractDir: '/app' });
-  py.runPython("import sys\nsys.path.insert(0, '/app')\nfrom web_bridge import process, export_native, recolor_native\nimport shutil\n");
-  return { py, manifest };
-}
-
 function getEngine() {
-  // Prewarming and an early Generate request share the same initialization.
-  // Reset on failure so the next explicit request can retry.
-  return bootPromise ||= initialize().catch(error => {
-    bootPromise = undefined;
-    throw error;
-  });
+  return bootPromise ||= (async () => {
+    progress('starting');
+    const [manifest,libraries] = await Promise.all([resource('./core-manifest.json'),resource('./core/palettes.json')]);
+    return {manifest,libraries};
+  })().catch(error => { bootPromise=undefined; throw error; });
 }
-
-self.onmessage = async ({ data }) => {
+const buffer = bytes => bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+self.onmessage = async ({data}) => {
   if (data.type === 'init') {
-    try {
-      const engine = await getEngine();
-      self.postMessage({ type: 'ready', id: data.id, manifest: engine.manifest });
-    } catch (error) {
-      self.postMessage({ type: 'error', id: data.id, message: String(error.message || error) });
-    }
+    try { const {manifest}=await getEngine(); self.postMessage({type:'ready',id:data.id,manifest}); }
+    catch(error) { self.postMessage({type:'error',id:data.id,message:String(error.message||error)}); }
     return;
   }
-  if (busy) { self.postMessage({ type: 'error', id: data.id, message: 'An operation is already running.' }); return; }
-  busy = true;
-  let py;
+  if (busy) { self.postMessage({type:'error',id:data.id,message:'An operation is already running.'}); return; }
+  busy=true;
   try {
-    const engine = await getEngine();
-    py = engine.py;
-    if (data.type === 'export') {
-      py.FS.mkdirTree('/job');
-      py.FS.writeFile('/job/native.png', new Uint8Array(data.bytes));
-      py.globals.set('_scale', data.scale);
-      await py.runPythonAsync("export_native('/job/native.png', '/job/export.png', _scale)");
-      const output = py.FS.readFile('/job/export.png').slice().buffer;
-      self.postMessage({ type: 'export', id: data.id, output }, [output]);
-      return;
+    const {libraries}=await getEngine();
+    if(data.type==='export') {
+      const output=buffer(await encodePng(await decodePng(data.bytes),validateScale(data.scale)));
+      self.postMessage({type:'export',id:data.id,output},[output]); return;
     }
-    if (data.type === 'recolor') {
-      progress('coloring', data.id);
-      py.FS.mkdirTree('/job');
-      py.FS.writeFile('/job/base.png', new Uint8Array(data.bytes));
-      py.globals.set('_request', JSON.stringify(data.settings));
-      if (data.debugZip) py.FS.writeFile('/job/debug.zip', new Uint8Array(data.debugZip));
-      const debugPath = data.debugZip ? "'/job/debug.zip'" : 'None';
-      const meta = JSON.parse(await py.runPythonAsync(`recolor_native('/job/base.png', '/job/recolored.png', _request, ${debugPath})`));
-      const native = py.FS.readFile('/job/recolored.png').slice().buffer;
-      const debugZip = data.debugZip ? py.FS.readFile('/job/debug.zip').slice().buffer : null;
-      self.postMessage({ type: 'recolor', id: data.id, native, meta, debugZip }, debugZip ? [native, debugZip] : [native]);
-      return;
+    if(data.type==='recolor') {
+      progress('coloring',data.id);
+      const colored=processColors(await decodePng(data.bytes),data.settings,libraries);
+      const native=buffer(await encodePng(colored.image));
+      const debugZip=data.debugZip ? buffer(recolorDiagnostics(data.debugZip,colored)) : null;
+      self.postMessage({type:'recolor',id:data.id,native,debugZip,meta:{color_processing:colored.diagnostics,seconds:colored.seconds}},debugZip?[native,debugZip]:[native]); return;
     }
-    if (data.type !== 'process') throw new Error('Unknown operation');
-    progress('processing', data.id);
-    py.FS.mkdirTree('/job');
-    py.FS.writeFile('/job/input', new Uint8Array(data.bytes));
-    py.globals.set('_request', JSON.stringify(data.request));
-    const meta = JSON.parse(await py.runPythonAsync("process('/job/input', _request, '/job/output')"));
-    const read = (name) => py.FS.readFile('/job/output/' + name).slice().buffer;
-    const result = { type: 'result', id: data.id, meta, output: read('result.png'),
-      native: read('native.png'), base: read('base.png'), original: meta.reuse_preview ? null : read('original.png'), diagnostics: {} };
-    const transfers = [result.output, result.native, result.base];
-    if (result.original) transfers.push(result.original);
-    if (meta.debug) {
-      result.debugZip = read('debug.zip'); transfers.push(result.debugZip);
-      for (const name of ['fft.png', 'edges.png', 'grid.png', 'profiles.png', 'curvature.png']) {
-        result.diagnostics[name] = read('debug/' + name); transfers.push(result.diagnostics[name]);
-      }
+    if(data.type!=='process') throw new Error('Unknown operation');
+    progress('processing',data.id);
+    const start=performance.now(), request=data.request||{}, config=configuration(request.config||{});
+    const source=await decodeImage(data.bytes), decoded=performance.now();
+    const result=pixelize(source,config,libraries);
+    const readTime=(decoded-start)/1000;
+    result.timings.read_preprocess+=readTime; result.timings.total+=readTime;
+    const stem=(request.name||'image.png').replace(/\.[^.]*$/,'').replace(/[\/\\:*?"<>|\x00-\x1f]/g,'').replace(/^[. ]+|[. ]+$/g,'')||'image';
+    const reusePreview=Array.isArray(request.preview_size)&&request.preview_size[0]===source.width&&request.preview_size[1]===source.height&&source.metadata.frames===1;
+    const native=buffer(await encodePng(result.image));
+    const base=result.diagnostics.color_processing.applied ? buffer(await encodePng(result.native_image)) : native.slice(0);
+    const output=config.scale===1?native.slice(0):buffer(await encodePng(result.image,config.scale));
+    const original=reusePreview?null:buffer(await encodePng(source));
+    const diagnosticStart=performance.now();
+    const images=request.debug?await drawDiagnostics(result):{};
+    result.timings.diagnostics=(performance.now()-diagnosticStart)/1000;
+    result.timings.total_with_export=(performance.now()-start)/1000;
+    const message={type:'result',id:data.id,output,native,base,original,diagnostics:{},meta:{
+      name:stem+'.png',grid:result.grid,confidence:result.confidence,input:source.metadata,reuse_preview:reusePreview,
+      timings:result.timings,warnings:result.diagnostics.warnings,config:request.config||{},debug:!!request.debug,
+      color_processing:result.diagnostics.color_processing,export_size:[result.image.width*config.scale,result.image.height*config.scale],runtime,
+    }};
+    const transfers=[output,native,base]; if(original) transfers.push(original);
+    if(request.debug) {
+      message.debugZip=buffer(diagnosticZip(diagnosticFiles(result,images,config.scale),stem)); transfers.push(message.debugZip);
+      for(const [name,png] of Object.entries(images)) { message.diagnostics[name]=buffer(png); transfers.push(message.diagnostics[name]); }
     }
-    self.postMessage(result, transfers);
-  } catch (error) {
-    const message = String(error.message || error);
-    self.postMessage({ type: 'error', id: data.id, message,
-      code: /MemoryError|Unable to allocate|out of memory|memory access out of bounds/i.test(message) ? 'memory' : 'processing' });
-  } finally {
-    try {
-      if (py) py.runPython("shutil.rmtree('/job', ignore_errors=True)\nglobals().pop('_request', None)\nglobals().pop('_scale', None)");
-    } finally { busy = false; }
-  }
+    self.postMessage(message,transfers);
+  } catch(error) {
+    const message=String(error.message||error);
+    self.postMessage({type:'error',id:data.id,message,code:/MemoryError|allocation|out of memory|Invalid typed array length|Array buffer allocation/i.test(message)?'memory':'processing'});
+  } finally { busy=false; }
 };

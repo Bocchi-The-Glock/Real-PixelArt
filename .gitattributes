@@ -1,4 +1,0 @@
-# Vendored runtime files are verified byte-for-byte against runtime-manifest.json
-# and the upstream package lock. Preserve the original download on every OS,
-# including Windows checkouts with core.autocrlf=true.
-/web/vendor/pyodide/** -text

@@ -59,7 +59,7 @@ This example limits the result to at most 32 colors and enlarges it by a factor 
 
 ## Algorithm
 
-Processing has four steps. The web and desktop apps share the same Python core:
+Processing has four steps. The web and desktop apps use native JavaScript. The Python API remains available, with shared grid and pixel regression cases checking both implementations:
 
 1. Measure color and alpha changes along both axes. Hidden RGB values in fully transparent pixels do not contribute to color decisions.
 2. Generate candidate grids from FFT periodicity and edge spacing. Compare half and double spacings, search for the grid origin, and apply small local corrections. FFT does not determine the final spacing on its own.

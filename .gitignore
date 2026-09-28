@@ -8,7 +8,7 @@ src/build/
 src/dist/
 build/
 output/debug/
-web/tests/
+web/tests/results/
 desktop/node_modules/
 desktop/dist/
 desktop/release/
