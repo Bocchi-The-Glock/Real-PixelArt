@@ -1,13 +1,266 @@
-"""Small Fourier/gap proposal set, cheap edge validation, then one lattice."""
+"""Extract source-image evidence, recover grid cuts, and choose a fallback grid.
+
+Sections follow the processing order: original-resolution evidence, candidate
+fitting, validation and native-pixel protection, then ordinary-image routing.
+"""
 from dataclasses import dataclass, field, replace
+
 import numpy as np
-from .features import peaks, smooth, axis_segment_evidence
+
+from .config import DENSE_PIXEL_LIMIT
 
 _MIN_GRID_SCORE = .30
 
 
+# Original-resolution edge and Fourier evidence.
+
+def smooth(values, radius=1):
+    kernel = np.array([1., 2., 1.]) if radius == 1 else np.ones(2 * radius + 1)
+    return np.convolve(np.pad(values, (radius, radius), mode="edge"), kernel / kernel.sum(), "valid")
+
+
+def _scan_positions(length, limit):
+    """Evenly spaced source indices; count <= length already guarantees uniqueness."""
+    return np.linspace(0, length - 1, min(limit, length)).astype(int)
+
+
+def peaks(values, threshold=0.):
+    """Represent flat local maxima by their midpoint."""
+    if len(values) < 3:
+        return np.empty(0, int)
+    changes = np.flatnonzero(np.diff(values) != 0) + 1
+    starts, ends = np.r_[0, changes], np.r_[changes, len(values)]
+    inside = (starts > 0) & (ends < len(values))
+    starts, ends = starts[inside], ends[inside]
+    valid = ((values[starts] > values[starts - 1]) & (values[starts] > values[ends])
+             & (values[starts] >= threshold))
+    return ((starts[valid] + ends[valid] - 1) // 2).astype(int)
+
+
+def axis_segment_evidence(rgba, spacing):
+    """Measure straight, axis-aligned edge runs on at most nine source patches.
+
+    Original pixels are never resized. Centred, tangentially smoothed derivatives
+    distinguish a diagonal staircase from an actual horizontal/vertical segment.
+    This is supporting evidence, not a pixel-art classifier.
+    """
+    h, w = rgba.shape[:2]
+    ph, pw = min(h, 130), min(w, 130)
+    if min(ph, pw) < 5:
+        return dict(active_patches=0, sampled_pixels=0, patches=[])
+    yy = np.linspace(0, h - ph, min(3, max(1, h // ph))).astype(int)
+    xx = np.linspace(0, w - pw, min(3, max(1, w // pw))).astype(int)
+    origins = [(int(x), int(y)) for y in yy for x in xx]
+    values = np.stack([rgba[y:y+ph, x:x+pw] for x, y in origins])
+    values[..., :3] *= values[..., 3:]
+    gx = np.zeros((len(origins), ph-2, pw-2), np.float32)
+    gy = np.zeros_like(gx)
+    for channel in range(4):
+        v = values[..., channel]
+        dx = (v[:, :, 2:] - v[:, :, :-2]) * .5
+        dy = (v[:, 2:, :] - v[:, :-2, :]) * .5
+        np.maximum(gx, abs((dx[:, :-2] + 2*dx[:, 1:-1] + dx[:, 2:]) * .25), out=gx)
+        np.maximum(gy, abs((dy[:, :, :-2] + 2*dy[:, :, 1:-1] + dy[:, :, 2:]) * .25), out=gy)
+    strength = np.maximum(gx, gy)
+    threshold = np.maximum(.012, np.minimum(.04, .15*strength.max(axis=(1, 2))))[:, None, None]
+    strong = strength >= threshold
+    vertical = strong & (gx >= 3*gy)
+    horizontal = strong & (gy >= 3*gx)
+
+    def sustained(mask, length, axis):
+        padding = [(0, 0)] * 3
+        padding[axis] = (length // 2 + 1, (length - 1) // 2)
+        total = np.cumsum(np.pad(mask, padding), axis=axis, dtype=np.int32)
+        first, last = [slice(None)]*3, [slice(None)]*3
+        first[axis], last[axis] = slice(None, -length), slice(length, None)
+        count = total[tuple(last)] - total[tuple(first)]
+        return mask & (count >= length - (1 if length >= 6 else 0))
+
+    lengths = [max(3, min(16, round(.5*s))) for s in spacing]
+    vr = sustained(vertical, lengths[1], 1)
+    hr = sustained(horizontal, lengths[0], 2)
+    mass = np.minimum(strength, .2) * strong
+    patches = []
+    for index, origin in enumerate(origins):
+        count = int(strong[index].sum())
+        weight = float(mass[index].sum())
+        denom = max(weight, 1e-9)
+        patches.append(dict(origin=list(origin), edges=count, mass=weight,
+                            vertical=float(mass[index][vr[index]].sum() / denom),
+                            horizontal=float(mass[index][hr[index]].sum() / denom),
+                            axis_aligned=float(mass[index][vertical[index] | horizontal[index]].sum() / denom)))
+    active = [p for p in patches if p['edges'] >= 32 and p['mass'] >= 1.]
+    return dict(sampled_pixels=int(values.shape[0]*ph*pw), patch_size=[pw, ph],
+                run_length=lengths, active_patches=len(active), patches=patches,
+                segment_fraction=float(np.mean([p['vertical']+p['horizontal'] for p in active])) if active else 0.,
+                axis_fraction=float(np.mean([p['axis_aligned'] for p in active])) if active else 0.)
+
+
+@dataclass
+class FeatureData:
+    gradient_x: np.ndarray
+    gradient_y: np.ndarray
+    profile_x: np.ndarray
+    profile_y: np.ndarray
+    spectrum: np.ndarray
+    spectral_x: np.ndarray
+    spectral_y: np.ndarray
+    curvature_x: np.ndarray
+    curvature_y: np.ndarray
+    ramp_ratio: tuple
+    native_axes: tuple
+    mode: str = 'full image'
+    spectrum_size: tuple | None = None
+    preview_edges: tuple | None = None
+
+
+def _native_axis(scanlines):
+    """Count one-pixel contrast reversals on original-resolution alpha-aware strips.
+
+    A-B-C votes only where B leaves the interval between A and C in at least one
+    premultiplied channel. Smooth monotone edge ramps do not vote.
+    """
+    values = scanlines.copy()
+    values[..., :3] *= values[..., 3:]
+    delta = np.diff(values, axis=1)
+    edges = np.max(np.abs(delta), axis=-1) > .06
+    reversal = np.max((np.abs(delta[:, :-1]) + np.abs(delta[:, 1:])
+                       - np.abs(delta[:, :-1] + delta[:, 1:])) * .5, axis=-1) > .06
+    counts = reversal.sum(axis=1)
+    return dict(edge_count=int(edges.sum()), turn_count=int(counts.sum()),
+                turn_fraction=float(counts.sum() / max(1, edges.sum())),
+                supporting_lines=int(np.count_nonzero(counts >= 2)),
+                active_lines=int(np.count_nonzero(edges.sum(axis=1) >= 4)))
+
+
+def _log_spectrum(gray, block=64):
+    """Exact separable 2-D FFT, with bounded transform temporaries.
+
+    Keep complex128 precision and every source pixel. NumPy's rfft2 otherwise
+    holds multiple image-sized complex arrays during its second transform.
+    """
+    h, w = gray.shape
+    horizontal = np.empty((h, w // 2 + 1), np.complex128)
+    for start in range(0, h, block):
+        horizontal[start:start + block] = np.fft.rfft(gray[start:start + block], axis=1)
+    # Match rfft2's column-major result, including the reduction order used by
+    # spectral_x/y. Changing layout can otherwise perturb float32 mean scores.
+    spectrum = np.empty(horizontal.shape, np.float32, order='F')
+    for start in range(0, horizontal.shape[1], block):
+        transformed = np.fft.fft(horizontal[:, start:start + block], axis=0)
+        magnitude = np.abs(transformed)
+        del transformed
+        np.log1p(magnitude, out=magnitude)
+        spectrum[:, start:start + block] = magnitude
+    return spectrum
+
+
+def _scanline_features(scanlines):
+    """Full-length source lines: their spacing remains in original pixels."""
+    values = scanlines.copy()
+    values[..., :3] *= values[..., 3:]
+    gradient = np.zeros(values.shape[:2], np.float32)
+    curvature = np.zeros_like(gradient)
+    gray = np.zeros_like(gradient)
+    for c, weight in enumerate((.299, .587, .114, 0.)):
+        v = values[..., c]
+        np.maximum(gradient[:, 1:], abs(np.diff(v, axis=1)), out=gradient[:, 1:])
+        np.maximum(curvature[:, 1:-1], abs(np.diff(v, n=2, axis=1)), out=curvature[:, 1:-1])
+        gray += weight * v
+    gray += .5 * (1 - values[..., 3])
+    spectral = np.log1p(abs(np.fft.rfft(gray, axis=1))).mean(axis=0).astype(np.float32)
+    return gradient, smooth(np.minimum(gradient, .35).mean(axis=0)), spectral, \
+        smooth(curvature.mean(axis=0)), float(curvature.sum() / max(float(gradient.sum()), 1e-9))
+
+
+def _sparse_features(rgba):
+    h, w = rgba.shape[:2]
+    rows = _scan_positions(h, 96)
+    cols = _scan_positions(w, 96)
+    horizontal, vertical = rgba[rows], rgba[:, cols].transpose(1, 0, 2)
+    gx, px, sx, cx, rx = _scanline_features(horizontal)
+    gy, py, sy, cy, ry = _scanline_features(vertical)
+    axes = (_native_axis(horizontal), _native_axis(vertical))
+    del horizontal, vertical
+    # A genuine 2-D FFT of a bounded source patch is for visualization only.
+    # Candidate periods come from the full-length source lines above.
+    ph, pw = min(h, 512), min(w, 512)
+    patch = rgba[(h-ph)//2:(h+ph)//2, (w-pw)//2:(w+pw)//2]
+    gray = np.zeros((ph, pw), np.float32)
+    for c, weight in enumerate((.299, .587, .114)):
+        gray += weight * (patch[..., c] * patch[..., 3])
+    gray += .5 * (1 - patch[..., 3])
+    spectrum = _log_spectrum(gray)
+    # Display original derivatives at bounded preview positions, not derivatives
+    # of a resized image. This does not feed the detector.
+    ratio = min(1., 1024 / max(h, w))
+    nx, ny = max(1, round(w * ratio)), max(1, round(h * ratio))
+    xx = ((np.arange(nx) + .5) * w / nx).astype(int)
+    yy = ((np.arange(ny) + .5) * h / ny).astype(int)
+    centre = rgba[np.ix_(yy, xx)].copy()
+    left = rgba[np.ix_(yy, np.maximum(xx-1, 0))].copy()
+    top = rgba[np.ix_(np.maximum(yy-1, 0), xx)].copy()
+    for samples in (centre, left, top):
+        samples[..., :3] *= samples[..., 3:]
+    ex, ey = np.max(abs(centre-left), axis=2), np.max(abs(centre-top), axis=2)
+    return FeatureData(gx, gy.T, px, py, spectrum, sx, sy, cx, cy, (rx, ry), axes,
+                       mode='96 original-resolution scanlines per axis', spectrum_size=(pw, ph), preview_edges=(ex, ey))
+
+
+def extract_features(rgba):
+    if rgba.shape[0] * rgba.shape[1] > DENSE_PIXEL_LIMIT:
+        return _sparse_features(rgba)
+    alpha = rgba[..., 3]
+    gx = np.zeros(alpha.shape, np.float32)
+    gy = np.zeros_like(gx)
+    gray = np.zeros_like(gx)
+    # Original-resolution scanlines: second derivatives locate interpolation
+    # knots when wide bilinear ramps have no sharp first-derivative maximum.
+    rows = _scan_positions(len(alpha), 64)
+    cols = _scan_positions(alpha.shape[1], 64)
+    cx = np.zeros((len(rows), alpha.shape[1]), np.float32)
+    cy = np.zeros((alpha.shape[0], len(cols)), np.float32)
+    # Compute the same full-resolution gradients in stripes. The one-row halo
+    # retains derivatives at stripe boundaries; no resize or sampled grid signal.
+    for start in range(0, len(alpha), 64):
+        end = min(start + 64, len(alpha))
+        top = max(0, start - 1)
+        a = alpha[top:end]
+        for channel, weight in enumerate((.299, .587, .114, 0.)):
+            v = rgba[top:end, :, channel] * a if channel < 3 else a
+            local = v[start - top:]
+            target = gx[start:end, 1:]
+            np.maximum(target, np.abs(np.diff(local, axis=1)), out=target)
+            target = gy[max(1, start):end]
+            np.maximum(target, np.abs(np.diff(v, axis=0)), out=target)
+            gray[start:end] += weight * local
+        gray[start:end] += .5 * (1 - alpha[start:end])
+    # Premultiplied original-resolution strips retain the curvature evidence.
+    for channel, weight in enumerate((.299, .587, .114, 0.)):
+        vx = rgba[rows, :, channel] * alpha[rows] if channel < 3 else alpha[rows]
+        vy = rgba[:, cols, channel] * alpha[:, cols] if channel < 3 else alpha[:, cols]
+        cx[:, 1:-1] = np.maximum(cx[:, 1:-1], np.abs(np.diff(vx, n=2, axis=1)))
+        cy[1:-1] = np.maximum(cy[1:-1], np.abs(np.diff(vy, n=2, axis=0)))
+    # Reuse this real-input 2-D FFT for detection and the diagnostic image.
+    spectrum = _log_spectrum(gray)
+    del gray
+    sx = spectrum[1:].mean(axis=0) if len(spectrum) > 1 else spectrum[0]
+    sy = spectrum[:, 1:].mean(axis=1) if spectrum.shape[1] > 1 else spectrum[:, 0]
+    px = smooth(np.minimum(gx, .35).mean(axis=0))
+    py = smooth(np.minimum(gy, .35).mean(axis=1))
+    ratio = (float(cx.sum() / max(float(gx[rows].sum()), 1e-9)),
+             float(cy.sum() / max(float(gy[:, cols].sum()), 1e-9)))
+    return FeatureData(gx, gy, px, py, spectrum, sx, sy[:len(sy) // 2 + 1],
+                       smooth(cx.mean(axis=0)), smooth(cy.mean(axis=1)), ratio,
+                       (_native_axis(rgba[rows]), _native_axis(rgba[:, cols].transpose(1, 0, 2))))
+
+
+# Candidate grids: proposals, phase fitting and cut placement.
+
 @dataclass
 class GridCandidate:
+    """A source-coordinate lattice and the evidence used to select it."""
+
     sx: float
     sy: float
     phase_x: float
@@ -17,6 +270,23 @@ class GridCandidate:
     support: float = 0.
     warped: bool = False
     metadata: dict = field(default_factory=dict)
+
+    @property
+    def has_protected_evidence(self):
+        """Native detail and validated resampling override weak-grid checks."""
+        return bool(self.metadata.get("native_preserved") or self.metadata["source"] in (
+            "validated interpolation knots", "exact two-pixel repetition",
+            "validated integer repetition"))
+
+    @property
+    def has_repeated_boundaries(self):
+        """Both axes repeat cell intervals or align with the proposed lattice."""
+        metrics = self.metadata.get("axis_metrics", [])
+        if len(metrics) != 2:
+            return False
+        unit_support = min(metric["unit_gaps"] for metric in metrics)
+        alignment = min(metric["edge_fit"] for metric in metrics)
+        return unit_support > .45 or (alignment > .65 and unit_support > .30)
 
 
 def make_lines(length, spacing, phase=0.):
@@ -127,6 +397,66 @@ def _measure(axis, spacing, lines):
                 edge_fit=explained, unit_gaps=units, fft=periodic)
 
 
+@dataclass
+class _GridFit:
+    """Intermediate fit: named fields keep search and diagnostic code aligned."""
+
+    score: float
+    sizes: tuple
+    source: str
+    phases: list
+    lines: list
+    metrics: list
+
+    def report(self, include_source=False):
+        detail = {"spacing": list(self.sizes)}
+        if include_source:
+            detail["source"] = self.source
+        detail.update(score=self.score, axes=self.metrics)
+        return detail
+
+    @property
+    def rank(self):
+        return -self.score, -self.sizes[0]
+
+
+def _fit_candidate(axes, sizes, source, *, allow_warp=None):
+    """Fit phases, cuts and evidence using the same rules for every proposal."""
+    phases, lines, metrics = [], [], []
+    for axis, spacing in zip(axes, sizes):
+        phase = _phase(axis, spacing)
+        cuts = (make_lines(len(axis["profile"]), spacing, phase) if allow_warp is None
+                else _walk(axis, spacing, phase, allow_warp))
+        metrics.append(_measure(axis, spacing, cuts))
+        phases.append(phase)
+        lines.append(cuts)
+    score = float(np.mean([metric["score"] for metric in metrics]))
+    return _GridFit(score, sizes, source, phases, lines, metrics)
+
+
+def _refine_spacing(axes, finalists, shape, config):
+    """Try at most five nearby spacings per finalist, keeping its aspect ratio."""
+    h, w = shape[:2]
+    extra = []
+    seen = [fit.sizes for fit in finalists]
+    for fit in finalists:
+        sizes = fit.sizes
+        step = max(.25, round(min(sizes) * .02 * 4) / 4)
+        centre = round(sizes[0] / step) * step
+        for offset in (-2, -1, 0, 1, 2):
+            sx = centre + offset * step
+            trial = (sx, sizes[1] * sx / sizes[0])
+            if not (config.min_pixel_size <= min(trial) and
+                    max(trial) <= min(config.max_pixel_size, w / 2, h / 2)):
+                continue
+            if any(np.allclose(trial, old, rtol=0., atol=1e-7) for old in seen):
+                continue
+            seen.append(trial)
+            extra.append(_fit_candidate(axes, trial, fit.source + " local spacing refinement",
+                                        allow_warp=config.local_warp == "auto"))
+    return extra
+
+
 def _detect_grid(features, shape, config):
     h, w = shape[:2]
     axes = [_axis(p, spec, config.min_pixel_size, min(config.max_pixel_size, n / 2))
@@ -173,78 +503,46 @@ def _detect_grid(features, shape, config):
             if config.min_pixel_size <= min(bx[1],by[1]) and max(bx[1],by[1]) <= config.max_pixel_size:
                 candidates.append(((bx[1], by[1]), "strong regular colour edges"))
 
-    ranked = []
-    for sizes, origin in candidates:
-        phases, lines, metrics = [], [], []
-        for axis, s in zip(axes, sizes):
-            phase = _phase(axis, s)
-            cuts = make_lines(len(axis["profile"]), s, phase)
-            metrics.append(_measure(axis, s, cuts))
-            phases.append(phase); lines.append(cuts)
-        score = float(np.mean([m["score"] for m in metrics]))
-        ranked.append((score, sizes, origin, phases, lines, metrics))
-    ranked.sort(key=lambda c: (-c[0], -c[1][0]))
+    ranked = [_fit_candidate(axes, sizes, origin) for sizes, origin in candidates]
+    ranked.sort(key=lambda fit: fit.rank)
     finalists = []
-    for _, sizes, origin, phases, lines, metrics in ranked[:3]:
+    for fit in ranked[:3]:
         refined = [cuts if m["edge_fit"] > .94 else _walk(a, s, phase, config.local_warp == "auto")
-                   for a, s, phase, cuts, m in zip(axes, sizes, phases, lines, metrics)]
-        ms = [_measure(a, s, cuts) for a, s, cuts in zip(axes, sizes, refined)]
-        score = float(np.mean([m["score"] for m in ms]))
-        finalists.append((score, sizes, origin, phases, refined, ms))
+                   for a, s, phase, cuts, m in zip(axes, fit.sizes, fit.phases, fit.lines, fit.metrics)]
+        metrics = [_measure(axis, spacing, cuts) for axis, spacing, cuts in zip(axes, fit.sizes, refined)]
+        score = float(np.mean([metric["score"] for metric in metrics]))
+        finalists.append(replace(fit, score=score, lines=refined, metrics=metrics))
     if not finalists:
         report["rejection"] = "no candidate spacing within search range"
         return None, report
-    finalists.sort(key=lambda c: (-c[0], -c[1][0]))
+    finalists.sort(key=lambda fit: fit.rank)
     # FFT bins/gap modes propose a scale, not a continuous optimum. With drifting
     # contours a small spacing change also changes which local edges _walk uses.
     # Before rejecting a near-threshold result, examine a bounded neighbourhood
     # of the three finalists. Successful existing detections remain untouched.
-    initial_score = finalists[0][0]
+    initial_score = finalists[0].score
     report["spacing_refinement"] = {"attempted": False, "initial_score": initial_score,
                                     "candidates": []}
     if (.25 <= initial_score < _MIN_GRID_SCORE
-            and min(m["unit_gaps"] for m in finalists[0][5]) >= .10):
-        extra = []
-        seen = [ss for _, ss, _, _, _, _ in finalists]
-        for _, sizes, origin, _, _, _ in finalists:
-            # At most five trials per finalist. Scale both axes together to keep
-            # the original aspect ratio and the square-mode constraint.
-            step = max(.25, round(min(sizes) * .02 * 4) / 4)
-            centre = round(sizes[0] / step) * step
-            for offset in (-2, -1, 0, 1, 2):
-                sx = centre + offset * step
-                ss = (sx, sizes[1] * sx / sizes[0])
-                if not (config.min_pixel_size <= min(ss) and
-                        max(ss) <= min(config.max_pixel_size, w / 2, h / 2)):
-                    continue
-                if any(np.allclose(ss, old, rtol=0., atol=1e-7) for old in seen):
-                    continue
-                seen.append(ss)
-                pp = [_phase(a, s) for a, s in zip(axes, ss)]
-                cc = [_walk(a, s, p, config.local_warp == "auto") for a, s, p in zip(axes, ss, pp)]
-                mm = [_measure(a, s, c) for a, s, c in zip(axes, ss, cc)]
-                value = float(np.mean([m["score"] for m in mm]))
-                extra.append((value, ss, origin + " local spacing refinement", pp, cc, mm))
-        report["spacing_refinement"].update(attempted=True, candidates=[
-            {"spacing": list(ss), "score": value, "axes": mm} for value, ss, _, _, _, mm in extra])
+            and min(metric["unit_gaps"] for metric in finalists[0].metrics) >= .10):
+        extra = _refine_spacing(axes, finalists, shape, config)
+        report["spacing_refinement"].update(attempted=True, candidates=[fit.report() for fit in extra])
         # The same acceptance thresholds apply; adding trials is not permission
         # to lower the evidence requirement or report an artificial confidence.
-        finalists.extend(c for c in extra if min(m["unit_gaps"] for m in c[5]) >= .10)
-        finalists.sort(key=lambda c: (-c[0], -c[1][0]))
-    score, sizes, origin, phases, lines, metrics = finalists[0]
-    report["candidates"] = [{"spacing": list(ss), "source": src, "score": value, "axes": mm}
-                            for value, ss, src, _, _, mm in ranked]
-    report["refined"] = [{"spacing": list(ss), "score": value, "axes": mm}
-                         for value, ss, _, _, _, mm in finalists]
-    report["selected_score"] = score
-    if score < _MIN_GRID_SCORE or min(m["unit_gaps"] for m in metrics) < .10:
-        report["rejection"] = (f"grid score below {_MIN_GRID_SCORE:.2f}" if score < _MIN_GRID_SCORE else
+        finalists.extend(fit for fit in extra if min(metric["unit_gaps"] for metric in fit.metrics) >= .10)
+        finalists.sort(key=lambda fit: fit.rank)
+    best = finalists[0]
+    report["candidates"] = [fit.report(include_source=True) for fit in ranked]
+    report["refined"] = [fit.report() for fit in finalists]
+    report["selected_score"] = best.score
+    if best.score < _MIN_GRID_SCORE or min(metric["unit_gaps"] for metric in best.metrics) < .10:
+        report["rejection"] = (f"grid score below {_MIN_GRID_SCORE:.2f}" if best.score < _MIN_GRID_SCORE else
                                "unit cell interval support below 0.10 in one axis")
         return None, report
     warped = any(len(c) != len(make_lines(n, s, p)) or not np.allclose(c, make_lines(n, s, p))
-                 for c, n, s, p in zip(lines, (w, h), sizes, phases))
-    return GridCandidate(*sizes, *phases, *lines, float(np.clip(score, 0., 1.)), warped,
-                         {"source": origin, "axis_metrics": metrics}), report
+                 for c, n, s, p in zip(best.lines, (w, h), best.sizes, best.phases))
+    return GridCandidate(*best.sizes, *best.phases, *best.lines, float(np.clip(best.score, 0., 1.)), warped,
+                         {"source": best.source, "axis_metrics": best.metrics}), report
 
 
 def _coarse_grid(features, shape, config):
@@ -320,71 +618,55 @@ def _native_resolution(features, shape, chosen, report):
                          metadata={'source': 'native pixel detail', 'native_preserved': True}), report
 
 
-def _exact_two_pixel_grid(features, shape, config):
-    """Recover clean 2x repetition before smoothed projections erase its period.
-
-    All examined changes, including weak changes, must align. Large-image mode
-    examines full-length scanlines and records that restricted evidence scope.
-    """
-    if not config.min_pixel_size <= 2 <= config.max_pixel_size:
-        return None
-    phases = []
-    for g, direction in ((features.gradient_x, 0), (features.gradient_y, 1)):
-        pos = np.flatnonzero(g.max(axis=direction) > 1e-6)
-        if len(pos) < 4 or np.gcd.reduce(np.diff(pos)) != 2:
-            return None
-        phases.append(float(pos[0] % 2))
-    h, w = shape[:2]
-    return GridCandidate(2., 2., *phases, make_lines(w, 2, phases[0]), make_lines(h, 2, phases[1]),
-                         .95 if features.mode == 'full image' else .85,
-                         metadata={'source': 'exact two-pixel repetition', 'evidence_scope': features.mode})
-
-
-def _exact_integer_grid(features, shape, config):
-    """Rescue rejected integer repeats from unsmoothed edge coordinates.
+def _exact_integer_grid(features, shape, config, *, require_two=False):
+    """Find exact repetition from unsmoothed edge coordinates in one scan.
 
     Projection peaks can hide adjacent cell boundaries behind stronger repeated
     shapes. A common divisor is usable only when every examined nonzero change
     fits it in both axes; even faint interpolation/noise changes invalidate it.
+    Only clean 2x repetition can override an accepted grid. Other integer repeats
+    rescue a rejected grid. Large-image scanlines retain their restricted scope.
     """
+    if require_two and not config.min_pixel_size <= 2 <= config.max_pixel_size:
+        return None
     sizes, phases = [], []
     for gradient, axis in ((features.gradient_x, 0), (features.gradient_y, 1)):
         positions = np.flatnonzero(gradient.max(axis=axis) > 1e-6)
         if len(positions) < 4:
             return None
         spacing = int(np.gcd.reduce(np.diff(positions)))
+        if require_two and spacing != 2:
+            return None
         if spacing < max(2, config.min_pixel_size) or spacing > config.max_pixel_size:
             return None
         sizes.append(float(spacing))
         phases.append(float(positions[0] % spacing))
     if (config.square and sizes[0] != sizes[1]) or max(sizes) / min(sizes) > 1.12:
         return None
+    source = ('exact two-pixel repetition' if sizes == [2., 2.]
+              else 'validated integer repetition')
     h, w = shape[:2]
     return GridCandidate(*sizes, *phases, make_lines(w, sizes[0], phases[0]),
                          make_lines(h, sizes[1], phases[1]),
                          .95 if features.mode == 'full image' else .85,
-                         metadata={'source': 'validated integer repetition', 'evidence_scope': features.mode})
+                         metadata={'source': source, 'evidence_scope': features.mode})
 
 
 def detect_grid(features, shape, config):
     chosen, report = _coarse_grid(features, shape, config)
-    exact = _exact_two_pixel_grid(features, shape, config)
+    exact = _exact_integer_grid(features, shape, config, require_two=chosen is not None)
     if exact is not None:
         chosen = exact
-        report['evidence_model'] = 'exact two-pixel repetition'
-        report['exact_two_pixel_grid'] = dict(spacing=[2., 2.], phase=[exact.phase_x, exact.phase_y],
-                                             score=exact.support, all_changes_aligned=features.mode == 'full image',
-                                             evidence_scope=features.mode)
+        report['evidence_model'] = exact.metadata['source']
+        if exact.sx == exact.sy == 2:
+            report['exact_two_pixel_grid'] = dict(
+                spacing=[2., 2.], phase=[exact.phase_x, exact.phase_y], score=exact.support,
+                all_changes_aligned=features.mode == 'full image', evidence_scope=features.mode)
+        else:
+            report['integer_repetition'] = dict(
+                spacing=[exact.sx, exact.sy], phase=[exact.phase_x, exact.phase_y],
+                evidence_scope=features.mode)
         report['selected_score'] = exact.support
-    elif chosen is None:
-        integer = _exact_integer_grid(features, shape, config)
-        if integer is not None:
-            chosen = integer
-            report['evidence_model'] = 'validated integer repetition'
-            report['integer_repetition'] = dict(spacing=[integer.sx, integer.sy],
-                                                phase=[integer.phase_x, integer.phase_y],
-                                                evidence_scope=features.mode)
-            report['selected_score'] = integer.support
     return _native_resolution(features, shape, chosen, report)
 
 
@@ -399,16 +681,10 @@ def validate_grid_segments(rgba, features, chosen, report):
     if chosen is None:
         evidence['reason'] = 'no candidate grid to validate'
         return chosen
-    if (chosen.metadata.get('native_preserved') or chosen.metadata['source'] in (
-            'validated interpolation knots', 'exact two-pixel repetition', 'validated integer repetition')
-            or min(chosen.sx, chosen.sy) < 3):
+    if chosen.has_protected_evidence or min(chosen.sx, chosen.sy) < 3:
         evidence['reason'] = 'native pixels or validated resampling grid take precedence'
         return chosen
-    metrics = chosen.metadata.get('axis_metrics', [])
-    repeated = len(metrics) == 2 and min(m['unit_gaps'] for m in metrics) > .45
-    aligned = (len(metrics) == 2 and min(m['edge_fit'] for m in metrics) > .65
-               and min(m['unit_gaps'] for m in metrics) > .30)
-    if chosen.support >= .45 or repeated or aligned:
+    if chosen.support >= .45 or chosen.has_repeated_boundaries:
         evidence['reason'] = 'strong existing grid evidence takes precedence'
         return chosen
     if min(features.ramp_ratio) < 1.25:
@@ -436,3 +712,128 @@ def validate_grid_segments(rgba, features, chosen, report):
                                            source=chosen.metadata['source'])
     report['selected_score'] = 0.
     return None
+
+
+# Grid selection when a source lattice cannot be confirmed.
+
+def _estimate_edge_grid(rgba, features, config, report):
+    """One inexpensive scale estimate for sharp, rectilinear art without a lattice.
+
+    Reuse source projections and the bounded segment scan. No extra FFT/search,
+    and no claim that a median edge interval recovers the original pixel grid.
+    """
+    detail = report['edge_estimate'] = dict(applied=False)
+    if min(features.ramp_ratio) < 1.:
+        detail['reason'] = 'soft boundaries; retain ordinary rendering'
+        return None
+    axes, sizes = [], []
+    for profile in (features.profile_x, features.profile_y):
+        positions = peaks(profile, max(.0008, .2 * float(profile.max())))
+        separated = []
+        for p in positions:
+            if not separated or p - separated[-1] >= 4:
+                separated.append(p)
+        if len(separated) < 8:
+            detail['reason'] = 'too few distributed edge peaks'
+            return None
+        pos = np.asarray(separated)
+        axes.append(dict(profile=profile, pos=pos, weights=profile[pos]))
+        sizes.append(float(np.median(np.diff(pos))))
+    # The finer direction is conservative when backgrounds hide many boundaries.
+    # Reject coarse estimates instead of imposing an arbitrary huge pixel block.
+    spacing = min(sizes)
+    detail.update(axis_median_gaps=sizes, spacing=spacing)
+    if not config.min_pixel_size <= spacing <= min(config.max_pixel_size, max(rgba.shape[:2]) / 128):
+        detail['reason'] = 'estimated spacing outside range or too coarse'
+        return None
+    evidence = axis_segment_evidence(rgba, (spacing, spacing))
+    detail['segments'] = evidence
+    active = [p for p in evidence['patches'] if p['edges'] >= 32 and p['mass'] >= 1.]
+    supporters = sum(p['axis_aligned'] >= .70 and p['vertical'] + p['horizontal'] >= .35 for p in active)
+    if (len(active) < 4 or supporters < 2 * len(active) / 3
+            or evidence['axis_fraction'] < .75 or evidence['segment_fraction'] < .45):
+        detail['reason'] = 'insufficient distributed straight-edge support'
+        return None
+    phases = [_phase(a, spacing) for a in axes]
+    cuts = [_walk(a, spacing, p, config.local_warp == 'auto') for a, p in zip(axes, phases)]
+    if max(len(c) - 1 for c in cuts) < 128:
+        detail['reason'] = 'adjusted grid would be too coarse'
+        return None
+    regular = [make_lines(len(a['profile']), spacing, p) for a, p in zip(axes, phases)]
+    warped = any(len(c) != len(r) or not np.allclose(c, r) for c, r in zip(cuts, regular))
+    detail.update(applied=True, reason='distributed straight edges; median interval estimate',
+                  generated_size=[len(c) - 1 for c in cuts])
+    return GridCandidate(spacing, spacing, *phases, *cuts, 0., warped,
+                         {'source': 'axis-aligned edge estimate', 'estimated': True})
+
+
+def route_image(rgba, features, chosen, config, segment_evidence=None):
+    """Prefer recovered/native grids; render a bounded fallback without a lattice.
+
+    This is an abstaining heuristic, not a calibrated pixel-art/photo classifier.
+    A generated grid can never be coarser than an existing accepted grid.
+    """
+    h, w = rgba.shape[:2]
+    report = dict(applied=False, mode=config.photo_mode,
+                  curvature_ratio=list(features.ramp_ratio))
+
+    def keep(reason):
+        report['reason'] = reason
+        return chosen, report
+
+    if config.photo_mode == 'off':
+        return keep('ordinary-image rendering disabled')
+    if max(w, h) <= 192 or min(w, h) < 16:
+        return keep('limited source resolution; preserve existing recovery')
+    if chosen is not None:
+        if chosen.has_protected_evidence:
+            return keep('native pixels or validated resampling grid')
+        if chosen.has_repeated_boundaries:
+            return keep('repeated cell intervals or aligned grid in both axes')
+    if chosen is not None and min(features.ramp_ratio) >= 1.25:
+        return keep('sharp pixel-like transitions; abstain from ordinary-image rendering')
+
+    # Accepted grids keep their existing behavior. A rejected curved outline must
+    # not re-enter through a finer scale; reuse the validation result without a scan.
+    if chosen is None and (segment_evidence or {}).get('decision') != 'rejected':
+        estimated = _estimate_edge_grid(rgba, features, config, report)
+        if estimated is not None:
+            report['reason'] = 'edge-guided estimate; original lattice unconfirmed'
+            return estimated, report
+
+    # About 4 source pixels per rendered pixel, bounded to 96..256 on the long side.
+    # Sparse transparent subjects receive a finer budget to avoid losing their detail.
+    target = min(256, max(96, round(max(w, h) / 4)))
+    spacing = max(w, h) / target
+    alpha = rgba[..., 3]
+    if np.any(alpha <= .01):
+        yy = np.flatnonzero(np.any(alpha > .05, axis=1))
+        xx = np.flatnonzero(np.any(alpha > .05, axis=0))
+        if len(xx) and len(yy):
+            spacing = min(spacing, max(1., max(xx[-1] - xx[0] + 1, yy[-1] - yy[0] + 1) / 128))
+    if spacing < 1.5:
+        return keep('small visible subject; avoid further reduction')
+    nx, ny = max(1, round(w / spacing)), max(1, round(h / spacing))
+    if chosen is not None and (nx < len(chosen.x_lines) - 1 or ny < len(chosen.y_lines) - 1):
+        return keep('existing grid retains more detail than the rendering budget')
+
+    if config.square:
+        # Equal nominal step; partial edge cells still cover the entire input.
+        xs = np.r_[np.arange(0., w - .5, spacing), float(w)]
+        ys = np.r_[np.arange(0., h - .5, spacing), float(h)]
+        sx = sy = spacing
+    else:
+        xs, ys = np.linspace(0, w, nx + 1), np.linspace(0, h, ny + 1)
+        sx, sy = w / nx, h / ny
+    # Verify the final counts too, including partial cells in square mode.
+    if chosen is not None and (len(xs) < len(chosen.x_lines) or len(ys) < len(chosen.y_lines)):
+        return keep('generated grid would lose recovered cells')
+    report.update(applied=True, reason=('no reliable grid; automatic pixelization' if chosen is None else
+                                       'soft image without convincing pixel-grid evidence'),
+                  generated_size=[len(xs) - 1, len(ys) - 1],
+                  previous_grid=None if chosen is None else dict(
+                      size=[len(chosen.x_lines) - 1, len(chosen.y_lines) - 1],
+                      spacing=[chosen.sx, chosen.sy], score=chosen.support),
+                  confidence_note='generated rendering grid, not a recovered source lattice')
+    return GridCandidate(sx, sy, 0., 0., xs, ys, 0., False,
+                         {'source': 'ordinary image rendering', 'stylized': True}), report

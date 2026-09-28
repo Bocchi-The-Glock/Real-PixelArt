@@ -1,15 +1,16 @@
 """Fast single-grid pipeline; the Python API has no filesystem side effects."""
 from dataclasses import dataclass, field
 from time import perf_counter
+
 import numpy as np
 from PIL import Image
+
 from .config import Config
-from .image_io import load_image, to_pil
-from .features import extract_features
-from .grid import detect_grid, validate_grid_segments
-from .sampling import recover_cells, CellResult, _resolve_alpha_mode
-from .palette import process_colors
-from .natural import route_image, render_cells
+from .grid import extract_features, detect_grid, validate_grid_segments, route_image
+from .sampling import (
+    CellResult, _resolve_alpha_mode, recover_cells, render_cells, process_colors,
+)
+from .tools import load_image, to_pil
 
 
 @dataclass

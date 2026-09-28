@@ -2,10 +2,9 @@
 import argparse
 from pathlib import Path
 import sys
-from .config import Config
+from .config import Config, PALETTE_IDS
 from .pipeline import pixelize
-from .image_io import save_result
-from .palette import PALETTE_IDS
+from .tools import save_result
 
 
 def parser():

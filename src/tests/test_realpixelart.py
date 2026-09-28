@@ -12,14 +12,56 @@ import pytest
 from PIL import Image, ImageFilter
 
 from realpixelart import Config, pixelize, save_result, export_png
-from realpixelart.features import extract_features, axis_segment_evidence
-from realpixelart.grid import detect_grid, make_lines
-from realpixelart.image_io import load_image, to_pil
-from realpixelart.palette import quantize_cells
-from realpixelart.sampling import recover_cells
+from realpixelart.grid import extract_features, axis_segment_evidence, detect_grid, make_lines
+from realpixelart.tools import load_image, to_pil
+from realpixelart.sampling import recover_cells, quantize_cells
 from realpixelart import process_colors, palette_catalog
-from realpixelart.palette import palette_rgb, PALETTE_IDS
-from realpixelart.color_math import rgb_to_lab, delta_e_2000, nearest
+from realpixelart.config import PALETTE_IDS
+from realpixelart.sampling import palette_rgb, rgb_to_lab, delta_e_2000, nearest
+
+
+def test_core_modules_have_one_way_dependencies():
+    """Merged modules must not regain reverse imports, including delayed ones."""
+    import ast
+
+    package = Path(__file__).resolve().parents[1] / "realpixelart"
+    modules = {path.stem: path for path in package.glob("*.py")}
+    assert set(modules) == {
+        "__init__", "__main__", "config", "pipeline", "grid", "sampling", "tools",
+    }
+    allowed = {
+        "config": set(),
+        "grid": {"config"},
+        "tools": {"config"},
+        "sampling": {"config", "tools"},
+        "pipeline": {"config", "grid", "sampling", "tools"},
+        "__init__": {"config", "pipeline", "sampling", "tools"},
+        "__main__": {"config", "pipeline", "tools"},
+    }
+    dependencies = {}
+    for name, path in modules.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imports = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    assert node.level == 1 and node.module is not None
+                    imports.add(node.module.split(".")[0])
+                elif node.module and node.module.startswith("realpixelart."):
+                    imports.add(node.module.split(".")[1])
+            elif isinstance(node, ast.Import):
+                imports.update(alias.name.split(".")[1] for alias in node.names
+                               if alias.name.startswith("realpixelart."))
+        assert imports <= allowed[name], (name, imports - allowed[name])
+        dependencies[name] = imports
+
+    def visit(name, ancestors):
+        assert name not in ancestors, " -> ".join((*ancestors, name))
+        for dependency in dependencies[name]:
+            visit(dependency, (*ancestors, name))
+
+    for name in dependencies:
+        visit(name, ())
 
 
 @pytest.mark.parametrize('shape', [(1, 1), (65, 127), (130, 134)])
@@ -47,7 +89,7 @@ def test_striped_features_match_full_resolution_reference(shape):
 
 @pytest.mark.parametrize('shape', [(1, 1), (65, 127), (130, 134)])
 def test_fft_thumbnail_coordinates_match_full_fft(shape):
-    from realpixelart.diagnostics import _fft_preview, _preview_axes
+    from realpixelart.tools import _fft_preview, _preview_axes
     gray = np.random.default_rng(18).random(shape)
     half = np.log1p(abs(np.fft.rfft2(gray))).astype(np.float32)
     expected = np.fft.fftshift(np.log1p(abs(np.fft.fft2(gray)))).astype(np.float32)
@@ -683,12 +725,21 @@ def test_edge_estimate_respects_disabled_mode_and_spacing_range(config):
 
 
 def test_rejected_curves_do_not_run_a_second_segment_scan(monkeypatch):
-    from realpixelart import natural
-    def unexpected(*args, **kwargs):
-        raise AssertionError('curved contours must not be rescued at another scale')
-    monkeypatch.setattr(natural, 'axis_segment_evidence', unexpected)
+    from realpixelart import grid
+    original_scan = grid.axis_segment_evidence
+    scans = []
+
+    def scan_once(*args, **kwargs):
+        # Validation and fallback now share one module-level function. Allow
+        # the original validation scan and still reject any second scan.
+        assert not scans, 'curved contours must not be rescued at another scale'
+        scans.append(True)
+        return original_scan(*args, **kwargs)
+
+    monkeypatch.setattr(grid, 'axis_segment_evidence', scan_once)
     source = Path(__file__).resolve().parents[2] / 'input/ritsu_2.jpg'
     result = pixelize(source)
+    assert len(scans) == 1
     assert result.grid['stylized'] and not result.grid['estimated']
     assert result.image.size == (190, 200)
 
@@ -1201,7 +1252,7 @@ def test_input_only_writes_named_png_and_opt_in_debug_to_project_output(tmp_path
 
 
 def test_save_result_default_skips_debug_writer(tmp_path, monkeypatch):
-    import realpixelart.diagnostics as diagnostics
+    import realpixelart.tools as diagnostics
     def unexpected(*args, **kwargs):
         raise AssertionError("Debug export must be opt-in")
     monkeypatch.setattr(diagnostics, "write_debug", unexpected)
@@ -1539,7 +1590,7 @@ def test_large_scanlines_recover_source_spacing_without_resizing(factor):
 
 def test_large_generated_sampler_keeps_center_stroke_between_area_samples():
     from realpixelart.grid import GridCandidate
-    from realpixelart.natural import render_cells
+    from realpixelart.sampling import render_cells
     # 2048^2 enters bounded sampling. The seam at cell center misses all 8x8
     # area positions; the original supported-center sampler still sees it.
     source = np.full((2048, 2048, 4), .55, np.float32)
@@ -1619,7 +1670,7 @@ def test_large_degraded_pixel_art_keeps_existing_recovery(degradation):
 def test_ordinary_budget_cannot_coarsen_an_existing_grid():
     from dataclasses import replace
     from realpixelart.grid import GridCandidate
-    from realpixelart.natural import route_image
+    from realpixelart.grid import route_image
     rgba = load_image(continuous_scene()).rgba
     features = extract_features(rgba)
     grid = GridCandidate(2., 2., 0., 0., np.arange(0, 769, 2), np.arange(0, 577, 2),
@@ -1658,7 +1709,7 @@ def test_actual_pseudo_pixel_art_is_not_rerouted_after_degradation(name, degrada
 
 def test_ordinary_sampler_suppresses_smooth_texture_aliasing_but_keeps_thin_line():
     from realpixelart.grid import GridCandidate
-    from realpixelart.natural import render_cells
+    from realpixelart.sampling import render_cells
     # Low-contrast woven fabric plus a continuous dark seam, not random noise.
     y, x = np.mgrid[:64, :64]
     source = np.ones((64, 64, 4), np.float32)

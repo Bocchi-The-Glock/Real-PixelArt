@@ -89,3 +89,5 @@ From left to right: **original (1536×1024) → perfectPixel (168×111) → Real
 In this example, RealPixelArt preserves more detail around the eyes, hair, and hat brim, while perfectPixel produces a coarser result. The different output resolutions also contribute to this difference. This is a visual comparison of three existing images, not evidence that RealPixelArt performs better on every input.
 
 See the [evaluation notes](EVALUATION.md) (in Chinese) for more measured results.
+
+For development, see the [contribution guide and code structure](docs/CONTRIBUTING.md).

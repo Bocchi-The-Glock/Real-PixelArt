@@ -18,8 +18,7 @@ CDN = f"https://cdn.jsdelivr.net/pyodide/v{VERSION}/full/"
 def bundle():
     sys.path.insert(0, str(ROOT / "src"))
     from dataclasses import asdict
-    from realpixelart import Config, __version__
-    from realpixelart.palette import palette_catalog
+    from realpixelart import Config, __version__, palette_catalog
     entries = {"realpixelart/" + p.name: p.read_bytes()
                for p in sorted((ROOT / "src/realpixelart").glob("*.py"))}
     entries["realpixelart/palettes.json"] = (ROOT / "src/realpixelart/palettes.json").read_bytes()

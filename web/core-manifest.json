@@ -89,20 +89,15 @@
       "unique_colors": 275
     }
   ],
-  "bundle_sha256": "40d53fba85d7a20a61a07022130e278d7b1a5b691d124bc981f18779be53e5a9",
+  "bundle_sha256": "48c5049a999748468e5ba041054a0f46a358fe20f68ce0420f69e4d8b99c314d",
   "files": {
-    "realpixelart/__init__.py": "b64c377a94ccbf1cc6432de44987ad88a5f93d655277281a1a04f71352afe1de",
-    "realpixelart/__main__.py": "8b34d3a89ce032ee35fa61c3b33fb7007af0f65442560b89d4a6efc60db6e695",
-    "realpixelart/color_math.py": "5fe6ea82e23f3e2682894680c1ae0128a8e167d930c660ba904cb72207fe65fa",
-    "realpixelart/config.py": "ddc2ccbb1badfe6850f8f542f4ca27a72ea46a6474a6b695fd60629e59826e80",
-    "realpixelart/diagnostics.py": "f4551696f20f2d19b18ed11dfb5729442165eb215bc8600de5d99aaaba9f8777",
-    "realpixelart/features.py": "5e30ce1bc4e80f3bb04caec93a226d0d89ac9b30be1b43131d6100fe376a63b8",
-    "realpixelart/grid.py": "40a75ffd9a4f7979b70b672df7c86987f3eb801edcd6d7b34cbd540db139ae7e",
-    "realpixelart/image_io.py": "4c1d9a62f3b32c8d6dde5e1f252e47d6d575da3ef9645868076bf8225f2efb28",
-    "realpixelart/natural.py": "a5ec98a3322b3986c9c83f76b90e4af819a6bf6a1c7cdac4673cd2ba668fa703",
-    "realpixelart/palette.py": "fd2d6cc88c72e4f8b7568236a3435ef0883812cb99cd87d2f3b174abcf02fb87",
-    "realpixelart/pipeline.py": "c6423a1a00656a9b743ec3410ee194166a7f484ef08197db8316bd4cee4576bd",
-    "realpixelart/sampling.py": "9b8c18f37e1e9aff2592f12ae57433f46e5c4fed00e9d63bcc547a0072875661",
+    "realpixelart/__init__.py": "9af32a5108169909e7b352053171f6ead20ffff7e00613d4639aa2be180ad954",
+    "realpixelart/__main__.py": "2235ad4ea118d05d81c30d03e8e413402a9d5457091fd7cf79b121ece207251a",
+    "realpixelart/config.py": "8da5c7f83a538433fa1119d1b1af27d99e370ffad88abfbebd11a1d2ccbb8b87",
+    "realpixelart/grid.py": "905a83b22b17adedfce4fec33620e20a994705bd0c1b52556ed5cc93dd1ecb89",
+    "realpixelart/pipeline.py": "d46609e2d2c9aff870a3f369322de5351cd46618e87345b44cb828e738f6a718",
+    "realpixelart/sampling.py": "cb19b2399e60d6caf3152d9e1f9bb96c62f748f0c2eb28787deded1b0fb45e94",
+    "realpixelart/tools.py": "0e3d8105d7767799bb927e9a06e6acbdb6f4edbfecb0603c31f0484e6d90ae6d",
     "realpixelart/palettes.json": "7bb56bc408bb861f6850ef9ba0620b686cdc09396330910033430e2b67df9b0a",
     "web_bridge.py": "e32dfbf787a16abf9c2831e6456e968f301299b31d62a03c98b615dff89ab65c"
   }

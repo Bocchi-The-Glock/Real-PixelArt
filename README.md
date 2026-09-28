@@ -90,3 +90,5 @@ RealPixelArt 主要围绕这些环节做了改进：
 在这个样例中，RealPixelArt 保留了更多眼睛、头发和帽沿的细节，perfectPixel 的结果更粗。这也与两者选出的分辨率不同有关：此处使用已有的三张结果图，仅作视觉比较，不代表 RealPixelArt 在所有图片上都更好。
 
 更多实测见 [评估记录](EVALUATION.md)
+
+参与开发请阅读 [贡献指南与代码结构](docs/CONTRIBUTING.md)。

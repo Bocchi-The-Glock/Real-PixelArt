@@ -1,7 +1,25 @@
 """Validated, immutable configuration shared by the CLI and Python API."""
 from dataclasses import dataclass
 import math
-from .palette import validate_color_options
+from numbers import Integral
+
+
+# Shared limits live with their validation, keeping this module dependency-free
+# within the package. The image algorithms use the same dense/sparse boundary.
+DENSE_PIXEL_LIMIT = 4_000_000
+PALETTE_IDS = ("DMC436", "MARD24", "MARD48", "MARD72", "MARD96", "MARD120",
+               "MARD144", "MARD221", "MARD280")
+MAX_COLORS = 512
+
+
+def validate_color_options(colors, palette, color_mode):
+    if colors is not None and (isinstance(colors, bool) or not isinstance(colors, Integral)
+                               or not 1 <= colors <= MAX_COLORS):
+        raise ValueError(f"colors must be an integer from 1 to {MAX_COLORS}")
+    if palette is not None and palette not in PALETTE_IDS:
+        raise ValueError("unknown palette; choose " + ", ".join(PALETTE_IDS))
+    if color_mode not in ("natural", "rgb"):
+        raise ValueError("color_mode must be natural or rgb")
 
 
 def validate_scale(scale):
