@@ -1,0 +1,82 @@
+{
+  "name": "realpixelart-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Original Electron edition of RealPixelArt",
+  "author": "Bocchi-The-Glock",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/Bocchi-The-Glock/Real-PixelArt",
+  "main": "main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "icons": "electron scripts/icons.cjs",
+    "prepare:web": "node scripts/prepare.cjs",
+    "start": "npm run prepare:web && electron .",
+    "test": "npm run prepare:web && node --test tests/protocol.test.cjs && node tests/smoke.cjs",
+    "pack:win": "npm run prepare:web && node scripts/package-win.cjs dir",
+    "dist:win": "npm run prepare:web && node scripts/package-win.cjs zip portable",
+    "dist:win:zip": "npm run prepare:web && node scripts/package-win.cjs zip",
+    "dist:win:portable": "npm run prepare:web && node scripts/package-win.cjs portable",
+    "dist:mac": "npm run prepare:web && electron-builder --mac dmg zip --arm64 --x64 --publish never",
+    "test:packaged": "node tests/smoke.cjs --packaged",
+    "test:portable": "node tests/portable.cjs",
+    "test:cache": "node tests/runtime-cache.cjs",
+    "benchmark:startup": "node scripts/benchmark-startup.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3",
+    "playwright": "1.63.0"
+  },
+  "build": {
+    "appId": "io.github.realpixelart.electron",
+    "productName": "RealPixelArt Electron",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.cjs",
+      "protocol.cjs",
+      "package.json",
+      "assets/app.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../build/pages",
+        "to": "web"
+      }
+    ],
+    "artifactName": "RealPixelArt-Electron-${version}-${os}-${arch}.${ext}",
+    "artifactBuildStarted": "scripts/runtime-manifest.cjs",
+    "win": {
+      "target": [
+        "zip",
+        "nsis"
+      ],
+      "icon": "assets/app.ico"
+    },
+    "nsis": {
+      "script": "assets/cached-portable.nsi",
+      "differentialPackage": false,
+      "packElevateHelper": false,
+      "preCompressedFileExtensions": []
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.graphics-design",
+      "icon": "assets/app.icns",
+      "minimumSystemVersion": "13.0",
+      "identity": "-",
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    }
+  }
+}

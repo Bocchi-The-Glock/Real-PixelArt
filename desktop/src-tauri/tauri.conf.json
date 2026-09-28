@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RealPixelArt",
+  "version": "0.1.0",
+  "identifier": "io.github.realpixelart.lightweight",
+  "build": {
+    "beforeDevCommand": "npm run prepare:web",
+    "beforeBuildCommand": "npm run prepare:web",
+    "frontendDist": "../../build/desktop-web"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob: ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [],
+    "icon": [
+      "icons/app.png",
+      "icons/app.ico",
+      "icons/app.icns"
+    ],
+    "category": "GraphicsAndDesign",
+    "shortDescription": "Restore a regular pixel grid from pseudo pixel art",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": false
+      },
+      "minimumWebview2Version": "110.0.1587.0",
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.3",
+      "signingIdentity": "-"
+    }
+  }
+}

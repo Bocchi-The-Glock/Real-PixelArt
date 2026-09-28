@@ -10,7 +10,7 @@ const { chromium } = require('playwright');
 const desktop = path.resolve(__dirname, '..');
 const manifest = require('../dist/runtime-cache.json');
 const version = require('../package.json').version;
-const executable = path.join(desktop, `dist/RealPixelArt-${version}-win-x64.exe`);
+const executable = path.join(desktop, `dist/RealPixelArt-Electron-${version}-win-x64.exe`);
 const root = path.join(process.env.LOCALAPPDATA, 'RealPixelArt/Runtime');
 const cache = path.join(root, manifest.id);
 assert.match(manifest.id, /^realpixelart-[\w.-]+-x64-[a-f0-9]{20}$/);
@@ -85,15 +85,15 @@ async function launch(name, check) {
   safeRemove(cache);
   await launch('first extraction');
   const stamp = fs.statSync(path.join(cache, '.runtime-cache.ini')).mtimeMs;
-  const appStamp = fs.statSync(path.join(cache, 'RealPixelArt.exe')).mtimeMs;
+  const appStamp = fs.statSync(path.join(cache, 'RealPixelArt Electron.exe')).mtimeMs;
   await launch('cache reused', async () => {
     assert.equal(fs.statSync(path.join(cache, '.runtime-cache.ini')).mtimeMs, stamp);
-    assert.equal(fs.statSync(path.join(cache, 'RealPixelArt.exe')).mtimeMs, appStamp);
+    assert.equal(fs.statSync(path.join(cache, 'RealPixelArt Electron.exe')).mtimeMs, appStamp);
     // A second double-click must focus the original app and exit, never wait for
     // its lifetime or remove files used by the original running process.
     const second = start();
     await exited(second);
-    assert.ok(fs.existsSync(path.join(cache, 'RealPixelArt.exe')));
+    assert.ok(fs.existsSync(path.join(cache, 'RealPixelArt Electron.exe')));
   });
   const file = path.join(cache, 'resources/web/index.html');
   const expected = manifest.files.find(f => f.path === 'resources/web/index.html').sha256;

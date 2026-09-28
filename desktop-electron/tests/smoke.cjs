@@ -17,9 +17,9 @@ const cases = [
 let executablePath = process.env.PIXELART_EXECUTABLE || require('electron');
 if (packaged && !process.env.PIXELART_EXECUTABLE) {
   executablePath = process.platform === 'win32'
-    ? path.join(desktop, 'dist/win-unpacked/RealPixelArt.exe')
+    ? path.join(desktop, 'dist/win-unpacked/RealPixelArt Electron.exe')
     : path.join(desktop, process.arch === 'arm64' ? 'dist/mac-arm64' : 'dist/mac',
-                'RealPixelArt.app/Contents/MacOS/RealPixelArt');
+                'RealPixelArt Electron.app/Contents/MacOS/RealPixelArt Electron');
 }
 
 (async () => {
@@ -39,7 +39,7 @@ if (packaged && !process.env.PIXELART_EXECUTABLE) {
     assert.equal(await page.locator('#status').getAttribute('data-engine-state'), 'ready', await page.locator('#status').textContent());
     assert.equal(await page.title(), 'RealPixelArt');
     assert.equal(await page.locator('.brand').innerText(), 'Real Pixel Art');
-    assert.equal(await app.evaluate(({ app }) => app.getName()), 'RealPixelArt');
+    assert.equal(await app.evaluate(({ app }) => app.getName()), 'RealPixelArt Electron');
     assert.equal(await page.evaluate(() => isSecureContext && Boolean(crypto.subtle)), true);
     assert.equal(await page.evaluate(() => typeof require), 'undefined');
     const preferences = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences());

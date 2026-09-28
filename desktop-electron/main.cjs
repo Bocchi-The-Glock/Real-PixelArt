@@ -7,8 +7,8 @@ const { ORIGIN, assetHandler } = require('./protocol.cjs');
 protocol.registerSchemesAsPrivileged([{ scheme: 'pixelart', privileges: {
   standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
 } }]);
-app.setName('RealPixelArt');
-app.setAppUserModelId('io.github.realpixelart');
+app.setName('RealPixelArt Electron');
+app.setAppUserModelId('io.github.realpixelart.electron');
 const userData = app.commandLine.getSwitchValue('user-data-dir');
 if (userData) app.setPath('userData', path.resolve(userData));
 const smokeTest = app.commandLine.hasSwitch('smoke-test');
@@ -22,11 +22,12 @@ function openRepository(address) {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440, height: 1000, minWidth: 800, minHeight: 600,
-    title: 'RealPixelArt', show: false, backgroundColor: '#f6f7f5',
+    title: 'RealPixelArt Electron', show: false, backgroundColor: '#f6f7f5',
     icon: path.join(__dirname, 'assets/app.png'),
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true,
       webSecurity: true, spellcheck: false, backgroundThrottling: false },
   });
+  mainWindow.on('page-title-updated', event => event.preventDefault());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     openRepository(url);
     return { action: 'deny' };

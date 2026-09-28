@@ -13,5 +13,11 @@ desktop/node_modules/
 desktop/dist/
 desktop/release/
 desktop/test-results/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop-electron/node_modules/
+desktop-electron/dist/
+desktop-electron/release/
+desktop-electron/test-results/
 
 

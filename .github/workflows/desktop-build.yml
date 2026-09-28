@@ -1,9 +1,11 @@
-name: Build desktop apps
+name: Build lightweight desktop apps
 
 on:
   workflow_dispatch:
   push:
     tags: ['desktop-v*']
+  pull_request:
+    paths: ['desktop/**', 'web/**', '.github/workflows/desktop-build.yml']
 
 permissions:
   contents: read
@@ -15,11 +17,16 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            target: win
-          - os: macos-latest
-            target: mac
+            platform: win
+            arch: x64
+          - os: macos-15
+            platform: mac
+            arch: arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: desktop
@@ -27,40 +34,38 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Install Python reference-test dependencies
-        run: python -m pip install -r ../.github/requirements-ci.txt
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
       - run: npm ci
-      - name: Test actual desktop runtime
+      - run: npm run prepare:web
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Test desktop adapter
         run: npm test
-      - name: Package desktop app
-        run: npm run dist:${{ matrix.target }}
-      - name: Test packaged app on the runner architecture
-        run: npm run test:packaged
-      - name: Test Windows single-file launcher
-        if: matrix.target == 'win'
-        run: npm run test:portable
-      - name: Test persistent runtime cache and recovery
-        if: matrix.target == 'win'
-        run: npm run test:cache
+      - name: Test native validation
+        run: npm run test:rust
+      - name: Test actual WebView, output pixels and exports
+        run: npm run test:native
+      - name: Build release without test hooks
+        run: npm run build:${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:
-          name: RealPixelArt-${{ matrix.target }}
-          path: |
-            desktop/dist/*.exe
-            desktop/dist/*.dmg
-            desktop/dist/*.zip
+          name: RealPixelArt-${{ matrix.platform }}-${{ matrix.arch }}
+          path: desktop/release/*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: desktop-checks-${{ matrix.target }}
-          path: desktop/test-results/*/verification.json
+          name: lightweight-checks-${{ matrix.platform }}-${{ matrix.arch }}
+          path: desktop/test-results/native/report.json
           if-no-files-found: ignore

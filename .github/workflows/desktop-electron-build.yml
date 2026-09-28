@@ -1,0 +1,66 @@
+name: Build Electron desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['electron-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop-electron
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Python reference-test dependencies
+        run: python -m pip install -r ../.github/requirements-ci.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop-electron/package-lock.json
+      - run: npm ci
+      - name: Test actual desktop runtime
+        run: npm test
+      - name: Package desktop app
+        run: npm run dist:${{ matrix.target }}
+      - name: Test packaged app on the runner architecture
+        run: npm run test:packaged
+      - name: Test Windows single-file launcher
+        if: matrix.target == 'win'
+        run: npm run test:portable
+      - name: Test persistent runtime cache and recovery
+        if: matrix.target == 'win'
+        run: npm run test:cache
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RealPixelArt-Electron-${{ matrix.target }}
+          path: |
+            desktop-electron/dist/*.exe
+            desktop-electron/dist/*.dmg
+            desktop-electron/dist/*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electron-checks-${{ matrix.target }}
+          path: desktop-electron/test-results/*/verification.json
+          if-no-files-found: ignore

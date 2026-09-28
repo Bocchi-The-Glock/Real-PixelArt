@@ -1,7 +1,7 @@
 # Contributing to RealPixelArt
 
 The Python API and browser engine implement the same stages. The website and
-Electron app share the JavaScript engine; neither ships a Python interpreter.
+Tauri and Electron apps share the JavaScript engine; neither ships a Python interpreter.
 Start at `pipeline.pixelize()` (Python) or `core/pipeline.js` (JavaScript).
 
 ## Five functional modules
@@ -73,6 +73,8 @@ node web/build.mjs --check
 cd desktop
 npm ci
 npm test
+npm run test:rust
+npm run test:native
 ```
 
 Keep regression cases in the existing test file. For a behavior-preserving

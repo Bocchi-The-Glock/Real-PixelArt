@@ -25,7 +25,7 @@
 | Mac，Apple 芯片（M 系列） | `RealPixelArt-版本号-mac-arm64.dmg` | 打开后拖入“应用程序” |
 | Mac，Intel 芯片 | `RealPixelArt-版本号-mac-x64.dmg` | 打开后拖入“应用程序” |
 
-Mac 版需要 macOS 13 或更新版本。桌面版可离线使用；Windows 首次启动需要展开运行文件，后续会复用缓存。
+轻量版使用系统 WebView：Windows 缺少 WebView2 时会提示安装，Mac 需要 macOS 13.3 或更新。旧版保留为 **RealPixelArt Electron**。正常处理可离线完成，详见 [桌面版说明](desktop/README.md)。
 
 ## 使用
 

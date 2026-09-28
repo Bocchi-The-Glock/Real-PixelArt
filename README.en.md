@@ -25,7 +25,8 @@ The web app runs directly in your browser. Download the desktop app from **Asset
 | Mac with Apple silicon (M series) | `RealPixelArt-<version>-mac-arm64.dmg` | Open and drag the app into Applications |
 | Mac with an Intel processor | `RealPixelArt-<version>-mac-x64.dmg` | Open and drag the app into Applications |
 
-The Mac app requires macOS 13 or later. The desktop app works offline. On Windows, the first launch extracts runtime files; subsequent launches reuse the cache.
+
+The lightweight edition uses the system WebView: Windows prompts to install missing WebView2; Mac requires macOS 13.3+. The original edition is retained as **RealPixelArt Electron**. Image processing works offline. See the [desktop guide](desktop/README.md).
 
 ## Usage
 

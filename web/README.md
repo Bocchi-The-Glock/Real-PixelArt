@@ -1,6 +1,6 @@
 # RealPixelArt Web
 
-纯前端应用：使用原生 JavaScript 在 Worker 中识别网格、恢复像素和处理颜色。图片不上传，没有后端，也不加载 Python、Pyodide、NumPy、Pillow 或算法压缩包。网页版与 Electron 桌面版使用相同的网页文件。
+纯前端应用：使用原生 JavaScript 在 Worker 中识别网格、恢复像素和处理颜色。图片不上传，没有后端，也不加载 Python、Pyodide、NumPy、Pillow 或算法压缩包。网页版、Tauri 轻量版与 Electron 保留版使用相同的网页文件。桌面版构建见 [desktop](../desktop/README.md)。
 
 ## 本地打开与发布
 
@@ -67,7 +67,7 @@ python -m pip install -e ".[test]"
 python scripts/export_web_reference.py
 npm --prefix web test
 node web/build.mjs --check
-cd desktop
+cd desktop-electron
 npm ci
 npm test
 ```

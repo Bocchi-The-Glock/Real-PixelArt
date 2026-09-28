@@ -34,7 +34,7 @@
 ```bash
 python scripts/export_web_reference.py
 npm --prefix web test
-cd desktop
+cd desktop-electron
 npm test
 ```
 

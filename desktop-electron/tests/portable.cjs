@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 const desktop = path.resolve(__dirname, '..');
 const project = path.dirname(desktop);
 const version = require('../package.json').version;
-const executable = path.join(desktop, `dist/RealPixelArt-${version}-win-x64.exe`);
+const executable = path.join(desktop, `dist/RealPixelArt-Electron-${version}-win-x64.exe`);
 const out = path.join(desktop, 'test-results', 'portable-' + Date.now());
 const profile = path.join(out, 'profile');
 fs.mkdirSync(out, { recursive: true });
