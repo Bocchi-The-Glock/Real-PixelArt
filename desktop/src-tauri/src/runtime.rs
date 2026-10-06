@@ -1,8 +1,11 @@
 //! Check the system engine before creating a window, including portable builds.
 use serde::Serialize;
 
+#[cfg(any(windows, not(feature = "smoke-test")))]
 pub const WEBVIEW2_HELP: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
+#[cfg(not(feature = "smoke-test"))]
 pub const MACOS_HELP: &str = "https://support.apple.com/108382";
+#[cfg(windows)]
 pub const MIN_WEBVIEW2_MAJOR: u32 = 110;
 
 #[derive(Debug, Serialize)]
@@ -12,6 +15,7 @@ pub struct RuntimeStatus {
     pub message: String,
 }
 
+#[cfg(any(windows, test))]
 pub fn supported_version(version: &str, minimum: u32) -> bool {
     version
         .split('.')

@@ -1,12 +1,13 @@
 /** Launch a test-only native build; exercise the real WebView and compare PNGs. */
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir, rm, copyFile } from 'node:fs/promises';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { decodePng, encodePng, unzipStored } from '../../web/core/tools.js';
 import { pixelize } from '../../web/core/pipeline.js';
+import { runNative } from './native-test.mjs';
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = dirname(desktop), output = resolve(desktop, 'test-results/native');
 await mkdir(output, {recursive: true});
@@ -32,16 +33,12 @@ if (process.platform === 'win32') {
   assert.equal(missing.status, 2, missing.stderr || missing.stdout);
   assert.equal(JSON.parse(missing.stdout).available, false);
 }
-await rm(resolve(output, 'report.json'), {force: true});
+for (const name of ['report.json', 'progress.log', 'native.log']) {
+  await rm(resolve(output, name), {force: true});
+}
 const started = performance.now();
-const child = spawn(executable, [], {cwd: desktop, windowsHide: true, stdio: 'inherit',
-  env: {...process.env, REALPIXELART_SMOKE_DIR: output, REALPIXELART_SMOKE_STARTED: String(Date.now())}});
-const timer = setTimeout(() => {child.kill();}, 180000);
-const code = await new Promise((resolve, reject) => {child.once('error', reject); child.once('exit', resolve);})
-  .finally(() => clearTimeout(timer));
-const report = JSON.parse(await readFile(resolve(output, 'report.json'), 'utf8'));
-assert.equal(code, 0, report.error || JSON.stringify(report));
-assert.equal(report.ok, true, JSON.stringify(report));
+const report = await runNative(executable, {cwd: desktop, output,
+  env: {REALPIXELART_SMOKE_DIR: output, REALPIXELART_SMOKE_STARTED: String(Date.now())}});
 const libraries = JSON.parse(await readFile(resolve(root, 'web/core/palettes.json'), 'utf8'));
 for (const [index, item] of cases.entries()) {
   const input = await decodePng(await readFile(resolve(root, 'input', item.name)));

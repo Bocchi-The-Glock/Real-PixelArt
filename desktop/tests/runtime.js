@@ -5,6 +5,7 @@ window.addEventListener('securitypolicyviolation', event => earlyErrors.push('CS
 window.addEventListener('DOMContentLoaded', async () => {
   const started = performance.now(), errors = earlyErrors, outputs = [];
   const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+  const progress = stage => invoke('smoke_progress', {stage});
   const waitFor = async predicate => {
     const deadline = performance.now() + 90000;
     while (!predicate()) {
@@ -16,10 +17,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   const bytes = encoded => Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
   window.alert = message => errors.push('Alert: ' + message);
   try {
+    await progress('DOM loaded; waiting for engine');
     await waitFor(() => ['ready', 'error'].includes(document.querySelector('#status')?.dataset.engineState));
     assert(document.querySelector('#status').dataset.engineState === 'ready', document.querySelector('#status').textContent);
     const readyMs = performance.now() - started;
     const launchMs = Date.now() - window.__SMOKE_STARTED__;
+    await progress('engine ready; processing fixtures');
     const worker = new Worker('./worker.js', { type: 'module' });
     const request = data => new Promise((resolve, reject) => {
       worker.onmessage = ({data: result}) => {
@@ -34,11 +37,13 @@ window.addEventListener('DOMContentLoaded', async () => {
         request: {name: item.name, config: item.config, debug: index === 0}});
       assert(result.type === 'result', 'Worker did not return an image');
       await invoke('save_export', {name: 'case-' + index + '.png', bytes: Array.from(new Uint8Array(result.output))});
+      await progress('processed ' + item.name);
       outputs.push({name: item.name, config: item.config, grid: result.meta.grid});
     }
     worker.terminate();
 
     // Real upload, generation, export multiplier and both native download paths.
+    await progress('testing upload and exports');
     const item = window.__SMOKE_CASES__[0], transfer = new DataTransfer();
     transfer.items.add(new File([bytes(item.input)], item.name, {type: 'image/png'}));
     const input = document.querySelector('#file-input');
@@ -62,6 +67,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('#download-debug').click();
     await waitFor(() => downloads.includes('lastTour_debug.zip') && !links.at(-1).dataset.saving);
     assert(errors.length === 0, errors.join('\n'));
+    await progress('exports complete');
     await invoke('finish_smoke', {report: {ok: true, outputs, downloads, ready_ms: readyMs,
       launch_to_ready_ms: launchMs, total_ms: performance.now() - started, user_agent: navigator.userAgent}});
   } catch (error) {

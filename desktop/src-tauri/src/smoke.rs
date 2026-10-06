@@ -24,3 +24,18 @@ pub fn finish_smoke(app: tauri::AppHandle, report: serde_json::Value) -> Result<
     app.exit(if report["ok"] == true { 0 } else { 1 });
     Ok(())
 }
+
+// Persist milestones even if WebKit never completes the test.
+pub fn record_progress(stage: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(output_dir().join("progress.log"))
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{stage}").map_err(|error| error.to_string())
+}
+#[tauri::command]
+pub fn smoke_progress(stage: String) -> Result<(), String> {
+    record_progress(&stage)
+}

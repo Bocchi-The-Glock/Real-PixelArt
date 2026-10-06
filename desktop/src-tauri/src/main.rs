@@ -6,6 +6,7 @@ mod smoke;
 
 use std::path::Path;
 use tauri::{webview::NewWindowResponse, WebviewUrl, WebviewWindowBuilder};
+#[cfg(not(feature = "smoke-test"))]
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
@@ -27,7 +28,13 @@ fn export_extension(name: &str, bytes: &[u8]) -> Result<&'static str, String> {
 
 #[tauri::command]
 async fn save_export(app: tauri::AppHandle, name: String, bytes: Vec<u8>) -> Result<bool, String> {
+    #[cfg(not(feature = "smoke-test"))]
     let extension = export_extension(&name, &bytes)?;
+    #[cfg(feature = "smoke-test")]
+    {
+        export_extension(&name, &bytes)?;
+        let _ = &app;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(feature = "smoke-test")]
         {
@@ -64,6 +71,16 @@ async fn save_export(app: tauri::AppHandle, name: String, bytes: Vec<u8>) -> Res
 
 #[tauri::command]
 async fn runtime_problem(app: tauri::AppHandle, detail: String) -> Result<(), String> {
+    #[cfg(feature = "smoke-test")]
+    {
+        return smoke::finish_smoke(
+            app,
+            serde_json::json!({
+                "ok": false, "error": format!("Missing browser APIs: {detail}")
+            }),
+        );
+    }
+    #[cfg(not(feature = "smoke-test"))]
     tauri::async_runtime::spawn_blocking(move || {
         let help = if cfg!(windows) { runtime::WEBVIEW2_HELP } else { runtime::MACOS_HELP };
         let description = format!("系统网页组件缺少此应用需要的功能：\n{detail}\n\n请更新 WebView2（Windows）或 macOS / Safari（Mac）。\nUpdate the system WebView to continue. Open official instructions?");
@@ -75,6 +92,10 @@ async fn runtime_problem(app: tauri::AppHandle, detail: String) -> Result<(), St
 }
 
 fn main() {
+    #[cfg(feature = "smoke-test")]
+    if std::env::var_os("REALPIXELART_SMOKE_DIR").is_some() {
+        let _ = smoke::record_progress("native startup");
+    }
     let status = runtime::check();
     if std::env::args().any(|value| value == "--check-runtime") {
         println!(
@@ -94,6 +115,7 @@ fn main() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         save_export,
         runtime_problem,
+        smoke::smoke_progress,
         smoke::finish_smoke
     ]);
     #[cfg(not(feature = "smoke-test"))]
@@ -118,13 +140,17 @@ fn main() {
                         NewWindowResponse::Deny
                     });
             #[cfg(feature = "smoke-test")]
-            let window = window.visible(false).initialization_script(smoke::script());
+            // WKWebView can suspend hidden views; exercise a real visible Mac window.
+            let window = window
+                .visible(cfg!(target_os = "macos"))
+                .initialization_script(smoke::script());
             window.build()?;
             Ok(())
         })
         .run(tauri::generate_context!());
     if let Err(error) = result {
         eprintln!("RealPixelArt: {error}");
+        std::process::exit(1);
     }
 }
 

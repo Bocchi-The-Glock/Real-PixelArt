@@ -67,5 +67,8 @@ jobs:
         if: always()
         with:
           name: lightweight-checks-${{ matrix.platform }}-${{ matrix.arch }}
-          path: desktop/test-results/native/report.json
+          path: |
+            desktop/test-results/native/report.json
+            desktop/test-results/native/progress.log
+            desktop/test-results/native/native.log
           if-no-files-found: ignore

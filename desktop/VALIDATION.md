@@ -41,3 +41,11 @@
 本机是 Windows，**没有在此电脑构建或运行 macOS 应用**。GitHub Actions 已包含 Apple 芯片和 Intel 两个 Mac 任务，并会在对应 WKWebView 中执行相同的原生测试，成功后才上传 DMG/ZIP。需要推送后实际运行该流程确认 Mac 结果。
 
 Windows 安装包的 WebView2 安装引导已配置并生成；未在干净虚拟机内实际安装或升级 WebView2。Mac 当前采用 ad-hoc 签名，未进行 Apple 公证。
+
+## 2026-10-06：Mac 原生测试超时修复
+
+CI 日志显示编译成功，但约 180 秒后没有 report.json；旧测试隐藏所有平台的窗口，并在超时杀死进程后直接读取报告，导致 ENOENT 掩盖真实原因。隐藏 WKWebView 可能受到后台执行限制，目前仍需 Mac CI 确认。
+
+测试版本现在在 macOS 使用可见窗口，Windows 保持隐藏测试窗口。记录 native.log、progress.log；超时或提前退出时生成失败报告并显示退出码、信号和执行阶段。缺失浏览器 API 时直接失败，避免测试被交互对话框阻塞。CI 始终上传这三份诊断文件，测试失败仍会阻止发布。
+
+本机通过 9 项 Node 测试、2 项 Rust 单元测试、Rust 格式检查，以及真实 Windows WebView 的三张图逐像素比较、上传、3 倍最近邻 PNG 和诊断 ZIP 导出。原生测试版本编译无警告。Mac arm64/x64 的实际执行仍需推送后在 GitHub Actions 验证。
