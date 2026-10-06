@@ -85,6 +85,8 @@ RealPixelArt 主要围绕这些环节做了改进：
 
 ![lastTour 三图对比：左为原图，中为 perfectPixel，右为 RealPixelArt；下排为人物局部](docs/images/lastTour-comparison.png)
 
+![故障机器人 三图对比：左为原图，右上为 perfectPixel，右下为 RealPixelArt](docs/images/robot-comparison.png)
+
 从左到右为 **原图（1536×1024）→ perfectPixel（168×111）→ RealPixelArt（331×219）**，下排展示相同相对区域的人物细节。图片统一白底、按相同大小显示，低分辨率结果采用最近邻缩放。
 
 在这个样例中，RealPixelArt 保留了更多眼睛、头发和帽沿的细节，perfectPixel 的结果更粗。这也与两者选出的分辨率不同有关：此处使用已有的三张结果图，仅作视觉比较，不代表 RealPixelArt 在所有图片上都更好。

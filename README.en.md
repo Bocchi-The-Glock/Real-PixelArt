@@ -85,6 +85,8 @@ RealPixelArt focuses on improvements in these areas:
 
 ![lastTour comparison: original on the left, perfectPixel in the middle, RealPixelArt on the right; matching character close-ups below](docs/images/lastTour-comparison.png)
 
+![robot comparison: original on the left, perfectPixel & RealPixelArt on the right](docs/images/robot-comparison.png)
+
 From left to right: **original (1536×1024) → perfectPixel (168×111) → RealPixelArt (331×219)**. The bottom row shows matching areas of the character. All images use a white background and are displayed at the same size; low-resolution results are enlarged with nearest-neighbor scaling.
 
 In this example, RealPixelArt preserves more detail around the eyes, hair, and hat brim, while perfectPixel produces a coarser result. The different output resolutions also contribute to this difference. This is a visual comparison of three existing images, not evidence that RealPixelArt performs better on every input.
