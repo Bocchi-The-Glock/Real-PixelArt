@@ -20,6 +20,48 @@ from realpixelart.config import PALETTE_IDS
 from realpixelart.sampling import palette_rgb, rgb_to_lab, delta_e_2000, nearest
 
 
+def test_no_semitransparent_is_reversible_postprocessing():
+    rows = np.array([[[20, 40, 60, a] for a in (0, 1, 127, 128, 191, 192, 254, 255)]], dtype=np.uint8)
+    image = Image.fromarray(rows)
+    result = process_colors(image, no_semitransparent=True)
+    expected = rows.copy()
+    expected[..., 3] = np.where(expected[..., 3] >= 192, 255, 0)
+    expected[expected[..., 3] == 0] = 0
+    np.testing.assert_array_equal(result.image, expected)
+    np.testing.assert_array_equal(image, rows)
+    np.testing.assert_array_equal(process_colors(image, no_semitransparent=False).image, rows)
+    np.testing.assert_array_equal(process_colors(result.image, no_semitransparent=True).image, expected)
+    assert result.diagnostics['output_colors'] == 1
+    for invalid in (1, 'false', None):
+        with pytest.raises(ValueError, match='boolean'):
+            Config(no_semitransparent=invalid)
+        with pytest.raises(ValueError, match='boolean'):
+            process_colors(image, no_semitransparent=invalid)
+
+
+def test_no_semitransparent_excludes_discarded_palette_votes():
+    image = Image.fromarray(np.array([[[255, 0, 0, 191]] * 20 + [[0, 0, 255, 192]]], dtype=np.uint8))
+    for mode in ('rgb', 'natural'):
+        colored = process_colors(image, colors=1, color_mode=mode, no_semitransparent=True)
+        np.testing.assert_array_equal(np.asarray(colored.image)[0, -1], [0, 0, 255, 255])
+        assert colored.diagnostics['input_colors'] == 1
+        colored = process_colors(image, colors=2, palette='MARD24', color_mode=mode, no_semitransparent=True)
+        assert set(np.asarray(colored.image)[..., 3].flat) <= {0, 255}
+    blank = process_colors(Image.new('RGBA', (2, 2), (255, 0, 0, 127)), no_semitransparent=True)
+    assert blank.diagnostics['output_colors'] == 0
+    rgb = Image.new('RGB', (2, 2), (20, 40, 60))
+    assert process_colors(rgb, no_semitransparent=True).image.tobytes() == rgb.tobytes()
+
+
+def test_no_semitransparent_preserves_grid_and_sampling():
+    image = Image.fromarray(np.array([[[i * 15, 90, 160, i * 17] for i in range(16)]], dtype=np.uint8))
+    normal = pixelize(image, Config(photo_mode='off'))
+    binary = pixelize(image, Config(photo_mode='off', no_semitransparent=True))
+    assert binary.grid == normal.grid
+    np.testing.assert_array_equal(binary.native_image, normal.native_image)
+    np.testing.assert_array_equal(binary.image, process_colors(normal.native_image, no_semitransparent=True).image)
+
+
 def test_core_modules_have_one_way_dependencies():
     """Merged modules must not regain reverse imports, including delayed ones."""
     import ast

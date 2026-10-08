@@ -95,6 +95,8 @@ select, input[type="number"] { width: 100%; height: 36px; margin-top: 7px; borde
 .check-settings { display: flex; flex-direction: column; gap: 0; margin-top: 10px; }
 .check { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
 .check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+/* Space between the alpha checkbox and the color limit below it. */
+.color-settings .alpha-option { min-height: 24px; margin-bottom: 8px; }
 .custom-field { max-width: 220px; margin-top: 14px; }
 .field-hint { font-size: 11px; color: var(--muted); margin: 7px 0 0; }
 .advanced { margin-top: 10px; }

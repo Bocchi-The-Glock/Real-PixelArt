@@ -358,24 +358,27 @@ def _select_palette(rgb, weights, count, mode):
     return rgb[np.unique(selected)]
 
 
-def process_colors(image, *, colors=None, palette=None, color_mode="natural"):
-    """Recolor an already restored image. Alpha and dimensions remain byte-exact.
+def process_colors(image, *, colors=None, palette=None, color_mode="natural", no_semitransparent=False):
+    """Postprocess a restored image; optionally binarize alpha before matching colors.
 
-    No library + no limit is an exact no-op. Palette matching and final remapping
+    No options is an exact no-op. Palette matching and final remapping
     both use the requested distance. Fully transparent RGB has no statistical vote.
     """
-    validate_color_options(colors, palette, color_mode)
+    validate_color_options(colors, palette, color_mode, no_semitransparent)
     start = perf_counter()
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA")
-    if colors is None and palette is None:
+    if colors is None and palette is None and not no_semitransparent:
         return ColorResult(image.copy(), dict(applied=False, palette=None, limit=None,
                            mode=color_mode), perf_counter() - start)
     rgba = np.array(image.convert("RGBA"))
+    # The source used for grid detection and sampling is never modified.
+    if no_semitransparent:
+        rgba[..., 3] = np.where(rgba[..., 3] >= 192, 255, 0)
     visible = rgba[..., 3] > 0
     rgb, inv = np.unique(rgba[visible, :3], axis=0, return_inverse=True)
     count_before = len(rgb)
-    # Fractional coverage has a fractional vote; no alpha threshold is introduced.
+    # Transparent pixels have no palette vote; retained coverage weights colors.
     weights = np.bincount(inv, weights=rgba[visible, 3].astype(float) / 255., minlength=len(rgb))
     if len(rgb):
         if palette:
@@ -390,7 +393,7 @@ def process_colors(image, *, colors=None, palette=None, color_mode="natural"):
                 mapped = reduced[remap[inverse]]
             else:
                 mapped = available[matched]
-        elif len(rgb) > colors:
+        elif colors is not None and len(rgb) > colors:
             candidates, support = _representatives(rgb, weights)
             reduced = _select_palette(candidates, support, colors, color_mode)
             mapped = reduced[nearest(_space(rgb, color_mode), _space(reduced, color_mode), color_mode)]
@@ -404,6 +407,8 @@ def process_colors(image, *, colors=None, palette=None, color_mode="natural"):
     result = Image.fromarray(rgba if image.mode == "RGBA" else rgba[..., :3])
     info = dict(applied=True, palette=palette, limit=colors, mode=color_mode,
                 input_colors=count_before, output_colors=count_after)
+    if no_semitransparent:
+        info.update(no_semitransparent=True, alpha_threshold=192)
     if palette:
         info["library"] = next(p for p in palette_catalog() if p["id"] == palette)
     return ColorResult(result, info, perf_counter() - start)

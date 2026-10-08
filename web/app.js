@@ -264,7 +264,8 @@ for (const [id, amount] of [['colors-decrease', -1], ['colors-increase', 1]]) {
 }
 function colorConfiguration() {
   return { colors: colorCount,
-    palette: $('use-palette').checked ? $('palette').value : null, color_mode: $('color-mode').value };
+    palette: $('use-palette').checked ? $('palette').value : null, color_mode: $('color-mode').value,
+    no_semitransparent: $('no-semitransparent').checked };
 }
 function configuration() {
   return { ...defaults, scale: 1, sampling: $('sampling').value, alpha_mode: $('alpha-mode').value,
@@ -272,7 +273,7 @@ function configuration() {
     square: $('square').checked, photo_mode: $('photo-mode').checked ? 'auto' : 'off', ...colorConfiguration() };
 }
 function coreConfiguration() {
-  const { colors, palette, color_mode, ...core } = configuration(); return core;
+  const { colors, palette, color_mode, no_semitransparent, ...core } = configuration(); return core;
 }
 function reset() {
   if (!defaults) return;
@@ -281,6 +282,7 @@ function reset() {
   HTMLFormElement.prototype.reset.call($('color-settings'));
   for (const [key, id] of Object.entries({ sampling: 'sampling', alpha_mode: 'alpha-mode', local_warp: 'local-warp', min_pixel_size: 'min-size', max_pixel_size: 'max-size' })) $(id).value = String(defaults[key]);
   colorCount = defaults.colors;
+  $('no-semitransparent').checked = defaults.no_semitransparent;
   $('use-palette').checked = defaults.palette !== null;
   $('palette').value = defaults.palette || 'DMC436'; $('color-mode').value = defaults.color_mode;
   $('square').checked = defaults.square; $('photo-mode').checked = defaults.photo_mode === 'auto'; $('scale').value = String(defaults.scale);

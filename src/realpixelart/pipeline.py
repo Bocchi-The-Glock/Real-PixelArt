@@ -100,7 +100,8 @@ def pixelize(image, config=None):
     del cells, rgba, data
     timings['prepare_images'] = perf_counter() - t
     t = perf_counter()
-    colored = process_colors(native, colors=config.colors, palette=config.palette, color_mode=config.color_mode)
+    colored = process_colors(native, colors=config.colors, palette=config.palette,
+                             color_mode=config.color_mode, no_semitransparent=config.no_semitransparent)
     timings["palette"] = perf_counter() - t
     output = colored.image
     grid.update(output_size=list(output.size), input_size=[w, h], fallback=chosen is None, stylized=bool(stylized),

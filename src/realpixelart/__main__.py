@@ -12,6 +12,8 @@ def parser():
     p.add_argument("-i", "--input", required=True, type=Path)
     p.add_argument("-o", "--output", type=Path, help="default: project output/<input-stem>.png")
     p.add_argument("--colors", type=int, help="optional maximum visible RGB colors (1-512); default unlimited")
+    p.add_argument("--no-semitransparent", action="store_true",
+                   help="postprocess alpha: below 75% (192/255) becomes transparent, otherwise opaque")
     p.add_argument("--palette", nargs="?", const="DMC436", choices=PALETTE_IDS,
                    help="optional bead library; flag without a name selects DMC436")
     p.add_argument("--color-mode", choices=("natural", "rgb"), default="natural",
@@ -39,6 +41,7 @@ def main(argv=None):
         p.error("--debug-dir requires --debug")
     try:
         config = Config(colors=args.colors, palette=args.palette, color_mode=args.color_mode,
+                        no_semitransparent=args.no_semitransparent,
                         scale=args.scale, sampling=args.sampling, local_warp=args.local_warp,
                         alpha_mode=args.alpha_mode, photo_mode=args.photo_mode,
                         min_pixel_size=args.min_pixel_size, max_pixel_size=args.max_pixel_size,

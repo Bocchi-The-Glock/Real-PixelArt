@@ -39,6 +39,8 @@ The lightweight edition uses the system WebView: Windows prompts to install miss
 3. **Adjust colors if needed**: colors are unlimited by default. You can limit the color count or choose a palette. Color adjustments happen after restoration and do not change the recovered grid.
 4. **Download the PNG**: leave the export scale at its default of **1** to save the native low-resolution image. Choose **2–16** for nearest-neighbor enlargement, without regenerating the result.
 
+**No semi-transparent pixels** is an optional color-processing setting, disabled by default. Pixels below 75% opacity (alpha < 192) become fully transparent; the rest become opaque, retaining their RGB colors and grid positions. Toggle it after generation; turning it off restores the original recovered alpha. Use `--no-semitransparent` in the Python CLI, or `Config(no_semitransparent=True)` / `process_colors(image, no_semitransparent=True)` in the API.
+
 ![lastTour example: 1536×1024 original on the left, 331×219 RealPixelArt result on the right](docs/images/lastTour-tutorial.png)
 
 ### Python command line

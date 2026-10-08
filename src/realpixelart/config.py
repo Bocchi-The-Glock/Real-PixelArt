@@ -12,7 +12,9 @@ PALETTE_IDS = ("DMC436", "MARD24", "MARD48", "MARD72", "MARD96", "MARD120",
 MAX_COLORS = 512
 
 
-def validate_color_options(colors, palette, color_mode):
+def validate_color_options(colors, palette, color_mode, no_semitransparent=False):
+    if not isinstance(no_semitransparent, bool):
+        raise ValueError("no_semitransparent must be a boolean")
     if colors is not None and (isinstance(colors, bool) or not isinstance(colors, Integral)
                                or not 1 <= colors <= MAX_COLORS):
         raise ValueError(f"colors must be an integer from 1 to {MAX_COLORS}")
@@ -41,9 +43,10 @@ class Config:
     max_pixel_size: float = 64.0
     square: bool = False
     confidence_threshold: float = 0.45
+    no_semitransparent: bool = False
 
     def __post_init__(self):
-        validate_color_options(self.colors, self.palette, self.color_mode)
+        validate_color_options(self.colors, self.palette, self.color_mode, self.no_semitransparent)
         validate_scale(self.scale)
         if self.sampling not in ("robust", "center", "median"):
             raise ValueError("sampling must be robust, center, or median")

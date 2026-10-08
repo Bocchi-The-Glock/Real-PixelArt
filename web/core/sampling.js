@@ -435,16 +435,19 @@ function unpackColor(key) {
   return [key >>> 16, (key >>> 8) & 255, key & 255];
 }
 
-/** Recolor bytes only; dimensions and alpha never change and no grid is sampled. */
+/** Postprocess restored bytes; optionally binarize alpha before palette matching. */
 export function processColors(image, options = {}, libraries) {
-  const { colors = null, palette = null, color_mode: mode = 'natural' } = options;
-  validateColorOptions({ colors, palette, color_mode: mode });
+  const { colors = null, palette = null, color_mode: mode = 'natural', no_semitransparent = false } = options;
+  validateColorOptions({ colors, palette, color_mode: mode, no_semitransparent });
   const start = performance.now();
   const data = new Uint8Array(image.data);
   const output = { ...image, data };
-  if (colors === null && palette === null) {
+  if (colors === null && palette === null && !no_semitransparent) {
     return { image: output, diagnostics: { applied: false, palette: null, limit: null, mode }, seconds: (performance.now() - start) / 1000 };
   }
+  // Threshold the restored alpha, never the source used for grid detection/sampling.
+  // Keep straight RGB unchanged; transparent pixels have no palette vote.
+  if (no_semitransparent) for (let p = 3; p < data.length; p += 4) data[p] = data[p] >= 192 ? 255 : 0;
   const histogram = new Map();
   for (let p = 0; p < data.length; p += 4) {
     if (data[p + 3] === 0) { data[p] = data[p + 1] = data[p + 2] = 0; continue; }
@@ -467,7 +470,7 @@ export function processColors(image, options = {}, libraries) {
       const remap = nearest(colorSpace(candidates, mode), colorSpace(reduced, mode), mode);
       mapped = Array.from(matched, index => reduced[remap[lookup.get(index)]]);
     } else mapped = Array.from(matched, index => available[index]);
-  } else if (rgb.length && rgb.length > colors) {
+  } else if (colors !== null && rgb.length && rgb.length > colors) {
     const [candidates, support] = representatives(rgb, weights);
     const reduced = selectPalette(candidates, support, colors, mode);
     mapped = Array.from(nearest(colorSpace(rgb, mode), colorSpace(reduced, mode), mode), index => reduced[index]);
@@ -480,6 +483,7 @@ export function processColors(image, options = {}, libraries) {
   }
   const diagnostics = { applied: true, palette, limit: colors, mode, input_colors: rgb.length,
     output_colors: new Set(mapped.map(color => color[0] * 65536 + color[1] * 256 + color[2])).size };
+  if (no_semitransparent) Object.assign(diagnostics, { no_semitransparent: true, alpha_threshold: 192 });
   if (palette) diagnostics.library = paletteCatalog(libraries).find(entry => entry.id === palette);
   return { image: output, diagnostics, seconds: (performance.now() - start) / 1000 };
 }

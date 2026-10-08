@@ -38,6 +38,8 @@
 3. **按需调整颜色**：默认不限制颜色；也可限制数量，或选择色库。颜色调整在恢复之后进行，不会重新划分网格。
 4. **下载 PNG**：默认导出倍数设为 **1**，保存原生低分辨率图片；设为 **2–16**，使用最近邻放大，无需重新生成。
 
+颜色处理中的“无半透明像素”默认关闭。开启后，不透明度低于 75%（alpha < 192）的像素变为全透明，其余变为全不透明；不改变网格和保留像素的 RGB。可在生成后切换，关闭即可还原处理前的透明度。Python 命令行使用 `--no-semitransparent`，API 使用 `Config(no_semitransparent=True)` 或 `process_colors(image, no_semitransparent=True)`。
+
 ![lastTour 使用示例：左为 1536×1024 原图，右为 331×219 的 RealPixelArt 结果](docs/images/lastTour-tutorial.png)
 
 ### 使用 Python 命令行

@@ -6,7 +6,7 @@ export const PALETTE_IDS = Object.freeze([
   'MARD144', 'MARD221', 'MARD280',
 ]);
 export const DEFAULTS = Object.freeze({
-  colors: null, palette: null, color_mode: 'natural', scale: 1,
+  colors: null, palette: null, color_mode: 'natural', no_semitransparent: false, scale: 1,
   sampling: 'robust', alpha_mode: 'auto', local_warp: 'auto', photo_mode: 'auto',
   min_pixel_size: 2, max_pixel_size: 64, square: false, confidence_threshold: 0.45,
 });
@@ -18,7 +18,8 @@ export function validateScale(scale) {
   return scale;
 }
 
-export function validateColorOptions({ colors = null, palette = null, color_mode = 'natural' } = {}) {
+export function validateColorOptions({ colors = null, palette = null, color_mode = 'natural', no_semitransparent = false } = {}) {
+  if (typeof no_semitransparent !== 'boolean') throw new Error('no_semitransparent must be a boolean');
   if (colors !== null && (!Number.isInteger(colors) || colors < 1 || colors > MAX_COLORS)) {
     throw new Error(`colors must be an integer from 1 to ${MAX_COLORS}`);
   }

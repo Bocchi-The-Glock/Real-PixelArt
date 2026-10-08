@@ -19,6 +19,8 @@ const messages = {
   paletteName: ['{brand}-{size}色', '{brand}-{size} colors'],
   paletteNote: ['该规格标称 {nominal} 色，当前色库实际包含 {actual} 色。', 'Named {nominal} colors; this library contains {actual} colors.'],
   colorHelp: ['在恢复结果上调整，无需重新识别网格。', 'Adjust the restored image without detecting the grid again.'],
+  noSemitransparent: ['无半透明像素', 'No semi-transparent pixels'],
+  noSemitransparentHelp: ['不透明度不足 75% 的像素变为全透明，其余变为全不透明；关闭可恢复。', 'Pixels below 75% opacity become transparent; the rest become opaque. Turn off to restore.'],
   colorCount: ['当前 {count} 色 · {seconds} s', '{count} colors · {seconds} s'],
   coloring: ['正在调整颜色…', 'Applying color settings…'], colorDone: ['颜色已更新。', 'Colors updated.'],
   colorInvalid: ['请检查颜色设置。', 'Check the color settings.'],

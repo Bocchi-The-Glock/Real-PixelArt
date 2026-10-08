@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { configuration } from '../core/config.js';
+import { pixelize } from '../core/pipeline.js';
 import { recoverCells, renderCells, processColors, paletteCatalog, paletteRgb, rgbToLab, deltaE2000, nearest } from '../core/sampling.js';
 
 const libraries = JSON.parse(fs.readFileSync(new URL('../core/palettes.json', import.meta.url)));
@@ -12,6 +13,43 @@ function source(width, height, rgba) {
 }
 function pixel(image, x, y, rgba) { image.data.set(rgba, (y * image.width + x) * 4); }
 function bytes(rows) { return { width: rows.length, height: 1, data: Uint8Array.from(rows.flat()), has_alpha: true }; }
+
+test('optional binary-alpha postprocessing is reversible and preserves retained RGB', () => {
+  const rows = [0, 1, 127, 128, 191, 192, 254, 255].map(alpha => [20, 40, 60, alpha]);
+  const base = bytes(rows), original = base.data.slice();
+  const result = processColors(base, { no_semitransparent: true });
+  assert.deepEqual([...result.image.data], rows.flatMap(([r, g, b, a]) => a >= 192 ? [r, g, b, 255] : [0, 0, 0, 0]));
+  assert.equal(result.diagnostics.output_colors, 1);
+  assert.deepEqual(base.data, original);
+  assert.deepEqual(processColors(base, { no_semitransparent: false }).image, base);
+  assert.deepEqual(processColors(result.image, { no_semitransparent: true }).image, result.image);
+  for (const invalid of [1, 'false', null]) {
+    assert.throws(() => processColors(base, { no_semitransparent: invalid }), /boolean/);
+    assert.throws(() => configuration({ no_semitransparent: invalid }), /boolean/);
+  }
+});
+
+test('discarded translucent colors do not take palette slots', () => {
+  const base = bytes([...Array.from({length: 20}, () => [255, 0, 0, 191]), [0, 0, 255, 192]]);
+  for (const color_mode of ['rgb', 'natural']) {
+    const colored = processColors(base, { colors: 1, color_mode, no_semitransparent: true }, libraries);
+    assert.deepEqual([...colored.image.data.slice(-4)], [0, 0, 255, 255]);
+    assert.equal(colored.diagnostics.input_colors, 1);
+    const palette = processColors(base, { palette: 'MARD24', colors: 2, color_mode, no_semitransparent: true }, libraries);
+    assert.ok([...palette.image.data].filter((_, i) => i % 4 === 3).every(a => a === 0 || a === 255));
+  }
+  const transparent = processColors(bytes([[255, 0, 0, 127]]), { no_semitransparent: true });
+  assert.equal(transparent.diagnostics.output_colors, 0);
+});
+
+test('binary-alpha option leaves grid detection and sampling byte-identical', () => {
+  const input = bytes(Array.from({length: 16}, (_, i) => [i * 15, 90, 160, i * 17]));
+  const normal = pixelize(input, {photo_mode: 'off'});
+  const binary = pixelize(input, {photo_mode: 'off', no_semitransparent: true});
+  assert.deepEqual(binary.grid, normal.grid);
+  assert.deepEqual(binary.native_image, normal.native_image);
+  assert.deepEqual(binary.image, processColors(normal.native_image, {no_semitransparent: true}).image);
+});
 
 test('robust rejects an isolated center impulse and retains a thin line or highlight', () => {
   const image = source(9, 9, [0.2, 0.4, 0.6, 1]);
