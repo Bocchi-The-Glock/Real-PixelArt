@@ -1,7 +1,7 @@
 /** Browser-independent processing API. Image files and UI belong to adapters. */
 import { configuration } from './config.js';
 import { extractFeatures } from './features.js';
-import { detectGrid, validateGridSegments, routeImage } from './grid.js';
+import { detectGrid, fitTargetGrid, validateGridSegments, routeImage } from './grid.js';
 import { recoverCells, renderCells, resolveAlphaMode, processColors } from './sampling.js';
 import { byteImage, floatImage } from './tools.js';
 import { median, diff, roundEven } from './numeric.js';
@@ -11,20 +11,27 @@ const now = () => performance.now() / 1000;
 export function pixelize(source, options = {}, libraries = {}) {
   const config = configuration(options), start = now(), image = floatImage(source);
   const { width: w, height: h } = image;
+  if (config.target_size && (config.target_size[0] > w || config.target_size[1] > h)) {
+    throw new Error('target_size cannot exceed the source dimensions; use export scale to enlarge the result');
+  }
   const timings = { read_preprocess: now() - start };
   let t = now();
   const features = extractFeatures(image);
   timings.fft_edges = now() - t;
   t = now();
-  let { chosen, report: search } = detectGrid(features, image, config);
+  let { chosen, report: search } = config.target_size
+    ? fitTargetGrid(features, image, config) : detectGrid(features, image, config);
   search.feature_sampling = features.mode;
   const [fw, fh] = features.spectrum_size || [w, h];
   search.fft_view = { size: [fw, fh], origin: [Math.floor((w-fw)/2), Math.floor((h-fh)/2)], display_only: features.spectrum_size !== null };
   timings.grid_detection = now() - t;
-  t = now(); chosen = validateGridSegments(image, features, chosen, search);
+  t = now();
+  if (!config.target_size) chosen = validateGridSegments(image, features, chosen, search);
   timings.grid_validation = now() - t;
   t = now();
-  const routed = routeImage(image, features, chosen, config, search.axis_segments);
+  const routed = config.target_size
+    ? { chosen, report: { mode: 'fixed target grid', reason: 'user-specified output dimensions' } }
+    : routeImage(image, features, chosen, config, search.axis_segments);
   chosen = routed.chosen; search.image_routing = routed.report;
   timings.image_routing = now() - t;
   t = now();
@@ -48,7 +55,8 @@ export function pixelize(source, options = {}, libraries = {}) {
     grid = { sx: chosen.sx, sy: chosen.sy, phase_x: chosen.phase_x, phase_y: chosen.phase_y,
       x_lines: Array.from(chosen.x_lines, roundEven), y_lines: Array.from(chosen.y_lines, roundEven), warped: chosen.warped, source: chosen.metadata.source };
     confidence = chosen.support;
-    if (chosen.metadata.estimated) warnings.push('Estimated grid from axis-aligned edges; original lattice unconfirmed (low confidence).');
+    if (config.target_size) grid.fixed_size = true;
+    else if (chosen.metadata.estimated) warnings.push('Estimated grid from axis-aligned edges; original lattice unconfirmed (low confidence).');
     else if (stylized) warnings.push('Applied conservative ordinary-image pixelization; the rendering grid is generated, not a detected original grid.');
     else if (confidence < config.confidence_threshold) warnings.push('Low heuristic grid confidence; check the grid overlay.');
   }

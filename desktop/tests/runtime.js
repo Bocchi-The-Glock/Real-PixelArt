@@ -66,6 +66,37 @@ window.addEventListener('DOMContentLoaded', async () => {
     await waitFor(() => downloads.includes('lastTour.png') && !links[0].dataset.saving);
     document.querySelector('#download-debug').click();
     await waitFor(() => downloads.includes('lastTour_debug.zip') && !links.at(-1).dataset.saving);
+
+    // Fixed dimensions are a grid setting; generate through the same upload/UI path.
+    await progress('testing fixed-size generation and export');
+    const fixed = document.querySelector('#target-size-enabled');
+    const width = document.querySelector('#target-width'), height = document.querySelector('#target-height');
+    const change = element => element.dispatchEvent(new Event('input', {bubbles: true}));
+    assert(!fixed.checked && width.disabled && height.disabled, 'Fixed size must start disabled');
+    document.querySelector('#square').checked = true;
+    fixed.checked = true; change(fixed);
+    assert(!width.disabled && !height.disabled, 'Fixed-size inputs did not enable');
+    assert(['square', 'min-size', 'max-size'].every(id => document.getElementById(id).disabled), 'Conflicting grid settings must be disabled');
+    assert(document.querySelector('#download').disabled, 'Changing grid settings must invalidate the previous result');
+    width.value = '96'; change(width); height.value = '64'; change(height);
+    document.querySelector('#debug').checked = false;
+    const fixedTransfer = new DataTransfer();
+    fixedTransfer.items.add(new File([bytes(item.input)], 'lastTour_fixed.png', {type: 'image/png'}));
+    input.files = fixedTransfer.files;
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    await waitFor(() => !document.querySelector('#run').disabled);
+    document.querySelector('#run').click();
+    await waitFor(() => !document.querySelector('#download').disabled);
+    assert(document.querySelector('#metric-grid').textContent === '96 × 64', 'Fixed grid dimensions were not applied');
+    scale.value = '2'; change(scale);
+    assert(document.querySelector('#result-size').textContent === '96 × 64 (192 × 128)', 'Fixed-grid export size did not update');
+    document.querySelector('#download').click();
+    await waitFor(() => downloads.includes('lastTour_fixed.png') && !links.at(-1).dataset.saving);
+    fixed.checked = false; change(fixed);
+    assert(width.disabled && height.disabled && !document.querySelector('#square').disabled, 'Turning fixed size off did not restore automatic controls');
+    fixed.checked = true; change(fixed);
+    document.querySelector('#reset').click();
+    assert(!fixed.checked && width.disabled && height.disabled && width.value === '128' && height.value === '128', 'Reset did not restore fixed-size defaults');
     assert(errors.length === 0, errors.join('\n'));
     await progress('exports complete');
     await invoke('finish_smoke', {report: {ok: true, outputs, downloads, ready_ms: readyMs,

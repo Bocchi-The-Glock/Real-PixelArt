@@ -38,6 +38,10 @@
 3. **按需调整颜色**：默认不限制颜色；也可限制数量，或选择色库。颜色调整在恢复之后进行，不会重新划分网格。
 4. **下载 PNG**：默认导出倍数设为 **1**，保存原生低分辨率图片；设为 **2–16**，使用最近邻放大，无需重新生成。
 
+需要指定分辨率时，在“局部网格调整”下方勾选“固定像素”，填写 **X（宽）× Y（高）**，再点击生成。程序固定网格的列数和行数，利用原图边缘调整格线位置，然后按原有方式取色；不会将自动生成的结果直接缩放。关闭局部网格调整时，仅调整整体网格起点。
+
+固定模式覆盖完整原图，优先采用指定尺寸，忽略自动搜索间距和强制正方网格。宽高比与原图不同时，输出比例会改变，不会裁剪。每轴允许 1–4096，总像素不超过 100 万，且不能超过原图对应轴的像素数；放大请用“导出倍数”。此模式的网格由用户尺寸约束，不表示检测到了唯一的原始网格。
+
 颜色处理中的“无半透明像素”默认关闭。开启后，不透明度低于 75%（alpha < 192）的像素变为全透明，其余变为全不透明；不改变网格和保留像素的 RGB。可在生成后切换，关闭即可还原处理前的透明度。Python 命令行使用 `--no-semitransparent`，API 使用 `Config(no_semitransparent=True)` 或 `process_colors(image, no_semitransparent=True)`。
 
 ![lastTour 使用示例：左为 1536×1024 原图，右为 331×219 的 RealPixelArt 结果](docs/images/lastTour-tutorial.png)
@@ -59,6 +63,8 @@ python realpixelart.py -i input/lastTour.png --colors 32 --scale 4 --debug
 ```
 
 上例限制为最多 32 色，并将结果放大 4 倍。使用 `--help` 查看全部参数。算法运行依赖只有 NumPy 和 Pillow。
+
+固定输出尺寸：`python realpixelart.py -i input/lastTour.png --target-size 128x96`。Python API 对应 `pixelize(image, Config(target_size=(128, 96)))`；未指定时保留自动识别。
 
 ## 算法
 

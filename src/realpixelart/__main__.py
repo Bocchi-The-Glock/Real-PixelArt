@@ -7,6 +7,14 @@ from .pipeline import pixelize
 from .tools import save_result
 
 
+def target_size(value):
+    """Parse native output dimensions; Config validates the common size limits."""
+    parts = value.lower().split("x")
+    if len(parts) != 2 or any(not part.isascii() or not part.isdecimal() for part in parts):
+        raise argparse.ArgumentTypeError("target size must use WIDTHxHEIGHT, for example 128x96")
+    return tuple(int(part) for part in parts)
+
+
 def parser():
     p = argparse.ArgumentParser(description="Restore pseudo pixel art to native low-resolution PNG.")
     p.add_argument("-i", "--input", required=True, type=Path)
@@ -23,6 +31,8 @@ def parser():
     p.add_argument("--alpha-mode", choices=("auto", "binary", "coverage"), default="auto",
                    help="auto: sampled alpha; binary: explicit threshold; coverage: averaged alpha")
     p.add_argument("--local-warp", choices=("auto", "off"), default="auto")
+    p.add_argument("--target-size", type=target_size, metavar="WIDTHxHEIGHT",
+                   help="fit an adaptive grid with exactly this many output pixels; full source coverage")
     p.add_argument("--photo-mode", choices=("auto", "off"), default="auto",
                    help="pixelize ordinary images and unreliable-grid inputs; off disables rendering fallback")
     p.add_argument("--min-pixel-size", type=float, default=2)
@@ -45,7 +55,7 @@ def main(argv=None):
                         scale=args.scale, sampling=args.sampling, local_warp=args.local_warp,
                         alpha_mode=args.alpha_mode, photo_mode=args.photo_mode,
                         min_pixel_size=args.min_pixel_size, max_pixel_size=args.max_pixel_size,
-                        square=args.square)
+                        square=args.square, target_size=args.target_size)
         checkout = Path(__file__).resolve().parents[2]
         root = checkout if (checkout / "realpixelart.py").is_file() else Path.cwd()
         if args.output is None:

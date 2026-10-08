@@ -107,6 +107,15 @@ def cases(input_dir):
     for alpha in ("auto", "binary", "coverage"):
         yield f"alpha-{alpha}", sprite.filter(ImageFilter.GaussianBlur(.7)), {"alpha_mode": alpha}
     yield "warp-off", large, {"local_warp": "off"}
+    yield "fixed-size-sprite", sprite, {"target_size": (64, 72)}
+    yield "fixed-size-phase-only", sprite, {"target_size": (64, 72), "local_warp": "off"}
+    yield "fixed-size-aspect-ratio", large, {"target_size": (127, 83), "square": True}
+    yield "fixed-size-solid", Image.new("RGBA", (93, 67), (28, 70, 138, 75)), {"target_size": (11, 7)}
+    yield "fixed-size-single", transparent, {"target_size": (1, 1)}
+    yield "fixed-size-native", transparent, {"target_size": transparent.size}
+    yield "fixed-size-near-native", transparent, {"target_size": (71, 79)}
+    yield "fixed-size-colors", sprite, {"target_size": (64, 72), "colors": 16,
+                                         "no_semitransparent": True}
     yield "square", native.resize((779, 847), Image.Resampling.NEAREST), {"square": True}
     photo = input_dir / "ritsu_2.jpg"
     if photo.is_file():

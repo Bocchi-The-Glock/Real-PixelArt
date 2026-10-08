@@ -97,6 +97,118 @@ export function makeLines(length, spacing, phase = 0) {
   return [0, ...inside, length];
 }
 
+// Fixed output dimensions constrain the number of cells, not their source
+// widths. Endpoints cover the complete image; interior cuts follow its edges.
+function targetAxis(profile, count, allowWarp) {
+  const length = profile.length;
+  const spacing = length / count;
+  const regular = Array.from({ length: count + 1 }, (_, k) => roundEven(k * spacing));
+  const baseline = minimum(profile);
+  const amplitude = maximum(profile) - baseline;
+  const positions = Array.from(peaks(profile, baseline + Math.max(0.0008, amplitude * 0.16)));
+  const empty = { lines: regular, phase: 0, support: 0, warped: false,
+    metrics: { peaks: positions.length, edge_fit: 0, mean_shift: 0, optimized: false } };
+  if (count === 1 || count === length || amplitude <= 0.0008 || !positions.length) return empty;
+  const evidence = Array.from(profile, value => (value - baseline) / amplitude);
+  const axis = { pos: positions, weights: positions.map(p => evidence[p]) };
+  const radius = 0.45 * spacing;
+  const gapCost = (left, right) => 0.35 * ((right - left - spacing) / spacing) ** 2;
+  const nodeCost = (position, anchor) => -evidence[position]
+    + 0.12 * ((position - anchor) / spacing) ** 2;
+  // Include the nearest integer when a subpixel search window contains no
+  // integer coordinate (e.g. reducing 17 source pixels to 16 output pixels).
+  const bounds = k => [Math.max(k, Math.min(regular[k], Math.ceil(k * spacing - radius))),
+    Math.min(length - count + k, Math.max(regular[k], Math.floor(k * spacing + radius)))];
+  const phase = fitPhase(axis, spacing);
+  const fitted = clip(roundEven((phase > spacing / 2 ? phase - spacing : phase) * 8) / 8, -radius, radius);
+  const shifts = [...new Set([0, fitted, ...linspace(-radius, radius, 17)])].sort((a, b) => a - b);
+  let bestCost = Infinity;
+  let globalCuts = regular;
+  let globalPhase = 0;
+  for (const shift of shifts) {
+    const cuts = [0];
+    let cost = 0;
+    for (let k = 1; k < count; k++) {
+      const [lo, hi] = bounds(k);
+      const position = clip(roundEven(k * spacing + shift), lo, hi);
+      cuts.push(position);
+      cost += nodeCost(position, k * spacing) + gapCost(cuts[k - 1], position);
+    }
+    cost += gapCost(cuts.at(-1), length);
+    if (cost < bestCost - 1e-12) {
+      bestCost = cost; globalCuts = [...cuts, length]; globalPhase = shift;
+    }
+  }
+  let lines = globalCuts;
+  if (allowWarp && spacing >= 2) {
+    const candidates = [[0]];
+    const parents = [[-1]];
+    let previousCost = [0];
+    for (let k = 1; k < count; k++) {
+      const [lo, hi] = bounds(k);
+      let choices;
+      if (hi - lo < 17) choices = arange(lo, hi + 1);
+      else {
+        const local = positions.slice(searchSorted(positions, lo), searchSorted(positions, hi + 1));
+        local.sort((a, b) => evidence[b] - evidence[a] || a - b);
+        choices = [...new Set([...linspace(lo, hi, 9).map(roundEven), ...local.slice(0, 7), globalCuts[k]])]
+          .sort((a, b) => a - b);
+      }
+      const scores = choices.map(() => Infinity);
+      const back = choices.map(() => -1);
+      for (let j = 0; j < choices.length; j++) {
+        const unary = nodeCost(choices[j], globalCuts[k]);
+        for (let i = 0; i < candidates[k - 1].length; i++) {
+          if (candidates[k - 1][i] >= choices[j]) continue;
+          const score = previousCost[i] + unary + gapCost(candidates[k - 1][i], choices[j]);
+          if (score < scores[j] - 1e-12) { scores[j] = score; back[j] = i; }
+        }
+      }
+      candidates.push(choices); parents.push(back); previousCost = scores;
+    }
+    let last = 0;
+    bestCost = Infinity;
+    for (let i = 0; i < previousCost.length; i++) {
+      const score = previousCost[i] + gapCost(candidates.at(-1)[i], length);
+      if (score < bestCost - 1e-12) { bestCost = score; last = i; }
+    }
+    lines = new Array(count + 1);
+    lines[count] = length;
+    for (let k = count - 1; k >= 0; k--) { lines[k] = candidates[k][last]; last = parents[k][last]; }
+  }
+  const tolerance = Math.max(0.65, 0.14 * spacing);
+  let total = 0;
+  let weight = 0;
+  for (const position of positions) {
+    const upper = clip(searchSorted(lines, position), 1, count);
+    const distance = Math.min(Math.abs(position - lines[upper]), Math.abs(position - lines[upper - 1]));
+    total += evidence[position] * gaussian(distance / tolerance);
+    weight += evidence[position];
+  }
+  const chance = Math.min(0.85, 2.5066 * tolerance / spacing);
+  const support = clip((total / weight - chance) / (1 - chance), 0, 1);
+  return { lines, phase: globalPhase, support, warped: lines.some((v, k) => v !== globalCuts[k]),
+    metrics: { peaks: positions.length, edge_fit: support,
+      mean_shift: sum(lines.slice(1, -1).map((v, k) => Math.abs(v - regular[k + 1]))) / (count - 1), optimized: true } };
+}
+
+export function fitTargetGrid(features, image, config) {
+  const [nx, ny] = config.target_size;
+  const axes = [targetAxis(features.profile_x, nx, config.local_warp === 'auto'),
+    targetAxis(features.profile_y, ny, config.local_warp === 'auto')];
+  const sizes = [image.width / nx, image.height / ny];
+  const support = mean(axes.map(axis => axis.support));
+  const metadata = { source: 'fixed target grid', fixed_size: true, target_size: [nx, ny],
+    axis_metrics: axes.map(axis => axis.metrics) };
+  return { chosen: candidate(sizes, axes.map(axis => axis.phase), axes.map(axis => axis.lines),
+    support, axes.some(axis => axis.warped), metadata),
+  report: { mode: 'fixed target grid', fixed_size: true, target_size: [nx, ny], selected_score: support,
+    evidence_model: 'colour boundaries with fixed cell count', axis_evidence: metadata.axis_metrics,
+    axis_segments: { checked: false, decision: 'fixed target constraint' },
+    fixed_grid: { max_displacement: 0.45, max_candidates_per_cut: 17, displacement_weight: 0.12,
+      gap_weight: 0.35, local_warp: config.local_warp, full_coverage: true } } };
+}
+
 // Candidate proposals, source-coordinate phase fitting, and cut placement.
 
 function highestIndices(values, indices, count) {

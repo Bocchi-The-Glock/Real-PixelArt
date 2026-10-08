@@ -77,6 +77,10 @@
             <label><span data-i18n="sampling">取色方式</span><select id="sampling"><option value="robust" data-i18n="robust">稳健取色 · 中心优先</option><option value="center" data-i18n="center">中心采样</option><option value="median" data-i18n="median">中值采样</option></select></label>
             <label><span data-i18n="alpha">透明度</span><select id="alpha-mode"><option value="auto" data-i18n="alphaAuto">保留采样透明度</option><option value="coverage" data-i18n="coverage">按区域覆盖率平均</option><option value="binary" data-i18n="binary">二值透明度</option></select></label>
             <label><span data-i18n="warp">局部网格调整</span><select id="local-warp"><option value="auto" data-i18n="auto">自动</option><option value="off" data-i18n="off">关闭</option></select></label>
+            <div class="fixed-size-setting" data-i18n-title="fixedPixelsHelp">
+              <label class="check"><input id="target-size-enabled" type="checkbox" aria-controls="target-width target-height"><span data-i18n="fixedPixels">固定像素</span></label>
+              <div class="fixed-size-inputs"><input id="target-width" type="number" min="1" max="4096" step="1" value="128" placeholder="X" required disabled data-i18n-aria="targetWidth" data-i18n-title="targetWidth"><span aria-hidden="true">×</span><input id="target-height" type="number" min="1" max="4096" step="1" value="128" placeholder="Y" required disabled data-i18n-aria="targetHeight" data-i18n-title="targetHeight"></div>
+            </div>
           </div>
           <details class="advanced"><summary data-i18n="more">更多设置</summary><div class="advanced-settings">
             <label><span data-i18n="minSpacing">最小间距</span><input id="min-size" type="number" min="1" step="any" value="2"></label>

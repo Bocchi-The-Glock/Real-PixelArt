@@ -4,6 +4,7 @@ Sections follow the processing order: original-resolution evidence, candidate
 fitting, validation and native-pixel protection, then ordinary-image routing.
 """
 from dataclasses import dataclass, field, replace
+import math
 
 import numpy as np
 
@@ -293,6 +294,121 @@ def make_lines(length, spacing, phase=0.):
     inside = np.arange(phase - spacing, length + spacing, spacing)
     inside = inside[(inside >= max(.5, .2 * spacing)) & (inside <= length - max(.5, .2 * spacing))]
     return np.r_[0., inside, float(length)]
+
+
+def _target_axis(profile, count, allow_warp):
+    """Fit an exact number of cells with bounded, edge-aware source cuts.
+
+    A global phase initializes the cuts. A small dynamic program can then move
+    each cut by at most 45% of nominal spacing while penalizing uneven gaps.
+    All cuts are integer source coordinates; endpoints keep the full image.
+    """
+    length = len(profile)
+    spacing = length / count
+    regular = [round(k * spacing) for k in range(count + 1)]
+    baseline = float(np.min(profile))
+    amplitude = float(np.max(profile)) - baseline
+    positions = [int(p) for p in peaks(profile, baseline + max(.0008, amplitude * .16))]
+    empty = dict(lines=regular, phase=0., support=0., warped=False,
+                 metrics=dict(peaks=len(positions), edge_fit=0., mean_shift=0., optimized=False))
+    if count == 1 or count == length or amplitude <= .0008 or not positions:
+        return empty
+    evidence = [(float(value) - baseline) / amplitude for value in profile]
+    position_values = np.array(positions, dtype=float)
+    axis = dict(pos=position_values, weights=np.array([evidence[p] for p in positions]))
+    radius = .45 * spacing
+
+    def gap_cost(left, right):
+        return .35 * ((right - left - spacing) / spacing) ** 2
+
+    def node_cost(position, anchor):
+        return -evidence[position] + .12 * ((position - anchor) / spacing) ** 2
+
+    def bounds(k):
+        # Rounding must leave a valid position even when spacing is near one.
+        return (max(k, min(regular[k], math.ceil(k * spacing - radius))),
+                min(length - count + k, max(regular[k], math.floor(k * spacing + radius))))
+
+    phase = _phase(axis, spacing)
+    fitted = min(radius, max(-radius, round((phase - spacing if phase > spacing / 2 else phase) * 8) / 8))
+    shifts = sorted(set([0., fitted] + [float(v) for v in np.linspace(-radius, radius, 17)]))
+    best_cost, global_cuts, global_phase = math.inf, regular, 0.
+    for shift in shifts:
+        cuts, cost = [0], 0.
+        for k in range(1, count):
+            lo, hi = bounds(k)
+            position = min(hi, max(lo, round(k * spacing + shift)))
+            cuts.append(position)
+            cost += node_cost(position, k * spacing) + gap_cost(cuts[k - 1], position)
+        cost += gap_cost(cuts[-1], length)
+        if cost < best_cost - 1e-12:
+            best_cost, global_cuts, global_phase = cost, cuts + [length], shift
+    lines = global_cuts
+    if allow_warp and spacing >= 2:
+        candidates, parents, previous_cost = [[0]], [[-1]], [0.]
+        for k in range(1, count):
+            lo, hi = bounds(k)
+            if hi - lo < 17:
+                choices = list(range(lo, hi + 1))
+            else:
+                left, right = np.searchsorted(position_values, [lo, hi + 1])
+                local = sorted(positions[left:right], key=lambda p: (-evidence[p], p))[:7]
+                choices = sorted(set([round(float(p)) for p in np.linspace(lo, hi, 9)]
+                                     + local + [global_cuts[k]]))
+            scores, back = [math.inf] * len(choices), [-1] * len(choices)
+            for j, position in enumerate(choices):
+                unary = node_cost(position, global_cuts[k])
+                for i, previous in enumerate(candidates[k - 1]):
+                    if previous >= position:
+                        continue
+                    score = previous_cost[i] + unary + gap_cost(previous, position)
+                    if score < scores[j] - 1e-12:
+                        scores[j], back[j] = score, i
+            candidates.append(choices)
+            parents.append(back)
+            previous_cost = scores
+        last, best_cost = 0, math.inf
+        for i, cost in enumerate(previous_cost):
+            score = cost + gap_cost(candidates[-1][i], length)
+            if score < best_cost - 1e-12:
+                best_cost, last = score, i
+        lines = [0] * count + [length]
+        for k in range(count - 1, -1, -1):
+            lines[k], last = candidates[k][last], parents[k][last]
+    tolerance = max(.65, .14 * spacing)
+    total, weight = 0., 0.
+    line_values = np.array(lines, dtype=float)
+    for position in positions:
+        upper = min(count, max(1, int(np.searchsorted(line_values, position))))
+        distance = min(abs(position - lines[upper]), abs(position - lines[upper - 1]))
+        total += evidence[position] * math.exp(-.5 * (distance / tolerance) ** 2)
+        weight += evidence[position]
+    chance = min(.85, 2.5066 * tolerance / spacing)
+    support = min(1., max(0., (total / weight - chance) / (1 - chance)))
+    return dict(lines=lines, phase=global_phase, support=support, warped=lines != global_cuts,
+                metrics=dict(peaks=len(positions), edge_fit=support,
+                             mean_shift=sum(abs(v - regular[k + 1]) for k, v in enumerate(lines[1:-1])) / (count - 1),
+                             optimized=True))
+
+
+def fit_target_grid(features, shape, config):
+    """Use target dimensions as a cell-count constraint, then fit source edges."""
+    h, w = shape[:2]
+    nx, ny = config.target_size
+    axes = [_target_axis(features.profile_x, nx, config.local_warp == "auto"),
+            _target_axis(features.profile_y, ny, config.local_warp == "auto")]
+    support = sum(axis['support'] for axis in axes) / 2
+    metadata = dict(source='fixed target grid', fixed_size=True, target_size=[nx, ny],
+                    axis_metrics=[axis['metrics'] for axis in axes])
+    grid = GridCandidate(w / nx, h / ny, axes[0]['phase'], axes[1]['phase'],
+                         np.array(axes[0]['lines'], dtype=float), np.array(axes[1]['lines'], dtype=float),
+                         support, any(axis['warped'] for axis in axes), metadata)
+    report = dict(mode='fixed target grid', fixed_size=True, target_size=[nx, ny], selected_score=support,
+                  evidence_model='colour boundaries with fixed cell count', axis_evidence=metadata['axis_metrics'],
+                  axis_segments=dict(checked=False, decision='fixed target constraint'),
+                  fixed_grid=dict(max_displacement=.45, max_candidates_per_cut=17, displacement_weight=.12,
+                                  gap_weight=.35, local_warp=config.local_warp, full_coverage=True))
+    return grid, report
 
 
 def _axis(profile, spectrum, minimum, maximum):

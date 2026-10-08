@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 from .config import Config
-from .grid import extract_features, detect_grid, validate_grid_segments, route_image
+from .grid import extract_features, detect_grid, fit_target_grid, validate_grid_segments, route_image
 from .sampling import (
     CellResult, _resolve_alpha_mode, recover_cells, render_cells, process_colors,
 )
@@ -34,22 +34,30 @@ def pixelize(image, config=None):
     data = load_image(image)
     rgba = data.rgba
     h, w = rgba.shape[:2]
+    if config.target_size is not None and (config.target_size[0] > w or config.target_size[1] > h):
+        raise ValueError("target_size cannot exceed the source dimensions; "
+                         "use export scale to enlarge the result")
     timings = {"read_preprocess": perf_counter() - start}
     t = perf_counter()
     features = extract_features(rgba)
     timings["fft_edges"] = perf_counter() - t
     t = perf_counter()
-    chosen, search = detect_grid(features, rgba.shape, config)
+    chosen, search = (fit_target_grid(features, rgba.shape, config) if config.target_size is not None
+                      else detect_grid(features, rgba.shape, config))
     search['feature_sampling'] = features.mode
     fw, fh = features.spectrum_size or (w, h)
     search['fft_view'] = dict(size=[fw, fh], origin=[(w-fw)//2, (h-fh)//2],
                              display_only=features.spectrum_size is not None)
     timings["grid_detection"] = perf_counter() - t
     t = perf_counter()
-    chosen = validate_grid_segments(rgba, features, chosen, search)
+    if config.target_size is None:
+        chosen = validate_grid_segments(rgba, features, chosen, search)
     timings['grid_validation'] = perf_counter() - t
     t = perf_counter()
-    chosen, routing = route_image(rgba, features, chosen, config, search.get('axis_segments'))
+    if config.target_size is not None:
+        routing = dict(mode="fixed target grid", reason="user-specified output dimensions")
+    else:
+        chosen, routing = route_image(rgba, features, chosen, config, search.get('axis_segments'))
     search['image_routing'] = routing
     timings['image_routing'] = perf_counter() - t
     stylized = chosen is not None and chosen.metadata.get('stylized', False)
@@ -85,7 +93,9 @@ def pixelize(image, config=None):
                     y_lines=np.rint(chosen.y_lines).astype(int).tolist(),
                     warped=chosen.warped, source=chosen.metadata["source"])
         confidence = chosen.support
-        if chosen.metadata.get('estimated'):
+        if config.target_size is not None:
+            grid['fixed_size'] = True
+        elif chosen.metadata.get('estimated'):
             warnings.append("Estimated grid from axis-aligned edges; original lattice unconfirmed (low confidence).")
         elif stylized:
             warnings.append("Applied conservative ordinary-image pixelization; the rendering grid is generated, not a detected original grid.")

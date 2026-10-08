@@ -10,7 +10,7 @@ Start at `pipeline.pixelize()` (Python) or `core/pipeline.js` (JavaScript).
 | --- | --- | --- |
 | `config.py` | Options, shared limits and validation. | `Config`, `validate_scale`, `validate_color_options` |
 | `pipeline.py` | Run stages, measure time and return results. | `pixelize`, `PixelizeResult` |
-| `grid.py` | Source-resolution features, grid detection, cuts, validation and fallback selection. | `extract_features`, `detect_grid`, `validate_grid_segments`, `route_image` |
+| `grid.py` | Source-resolution features, grid detection, cuts, validation and fallback selection. | `extract_features`, `detect_grid`, `fit_target_grid`, `validate_grid_segments`, `route_image` |
 | `sampling.py` | Cell colors/alpha, color distance, optional reduction and palette matching. | `recover_cells`, `render_cells`, `process_colors` |
 | `tools.py` | Decode/normalize images, export PNGs and draw optional diagnostics. | `load_image`, `to_pil`, `export_png`, `save_result`, `write_debug` |
 
@@ -37,6 +37,16 @@ Keep sampling and recoloring independently callable even though they share a
 file. Changing a color limit or palette must use the cached native image, without
 detecting its grid or sampling its cells again. Diagnostic previews must never
 become evidence for detection.
+
+`target_size=(width, height)` selects a separate constrained grid fit before
+sampling. It fixes cell counts and image endpoints, fits a global phase, then
+uses bounded local edge candidates with displacement and gap regularization.
+With no usable edges it keeps uniform cuts. `local_warp='off'` skips local
+fitting. This mode bypasses automatic grid validation/routing so those stages
+cannot change the requested size; it still uses the existing cell sampler and
+color postprocessing. Diagnostics label it `fixed target grid`. Do not interpret
+its edge-support score as confirmation of an original lattice. The automatic
+path must remain unchanged when `target_size` is `None`/`null`.
 
 ## Preserve numerical behavior
 

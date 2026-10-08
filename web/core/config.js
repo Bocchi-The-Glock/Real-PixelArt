@@ -9,6 +9,7 @@ export const DEFAULTS = Object.freeze({
   colors: null, palette: null, color_mode: 'natural', no_semitransparent: false, scale: 1,
   sampling: 'robust', alpha_mode: 'auto', local_warp: 'auto', photo_mode: 'auto',
   min_pixel_size: 2, max_pixel_size: 64, square: false, confidence_threshold: 0.45,
+  target_size: null,
 });
 
 export function validateScale(scale) {
@@ -34,6 +35,15 @@ export function configuration(options = {}) {
   const config = { ...DEFAULTS, ...options };
   validateColorOptions(config);
   validateScale(config.scale);
+  if (config.target_size !== null) {
+    const size = config.target_size;
+    if (!Array.isArray(size) || size.length !== 2
+        || size.some(value => !Number.isInteger(value) || value < 1 || value > 4096)
+        || size[0] * size[1] > 1_000_000) {
+      throw new Error('target_size must contain two integers from 1 to 4096, with at most 1000000 pixels');
+    }
+    config.target_size = [...size];
+  }
   for (const [name, choices] of Object.entries({
     sampling: ['robust', 'center', 'median'], alpha_mode: ['auto', 'binary', 'coverage'],
     local_warp: ['auto', 'off'], photo_mode: ['auto', 'off'],

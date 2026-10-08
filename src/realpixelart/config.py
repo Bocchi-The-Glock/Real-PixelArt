@@ -44,10 +44,20 @@ class Config:
     square: bool = False
     confidence_threshold: float = 0.45
     no_semitransparent: bool = False
+    target_size: tuple[int, int] | None = None
 
     def __post_init__(self):
         validate_color_options(self.colors, self.palette, self.color_mode, self.no_semitransparent)
         validate_scale(self.scale)
+        if self.target_size is not None:
+            size = self.target_size
+            if (not isinstance(size, (tuple, list)) or len(size) != 2
+                    or any(isinstance(value, bool) or not isinstance(value, Integral)
+                           or not 1 <= value <= 4096 for value in size)
+                    or size[0] * size[1] > 1_000_000):
+                raise ValueError("target_size must contain two integers from 1 to 4096, "
+                                 "with at most 1000000 pixels")
+            object.__setattr__(self, "target_size", tuple(int(value) for value in size))
         if self.sampling not in ("robust", "center", "median"):
             raise ValueError("sampling must be robust, center, or median")
         if self.alpha_mode not in ("auto", "binary", "coverage"):

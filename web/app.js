@@ -223,6 +223,9 @@ function renderColorLimit() {
   $('colors').setAttribute('aria-valuetext', label);
 }
 function visibility() {
+  const fixedSize = $('target-size-enabled').checked;
+  for (const id of ['target-width', 'target-height']) $(id).disabled = !fixedSize;
+  for (const id of ['square', 'min-size', 'max-size']) $(id).disabled = fixedSize;
   const library = palettes.find(p => p.id === $('palette').value);
   colorMaximum = $('use-palette').checked && library ? library.unique_colors : 512;
   if (colorCount !== null) colorCount = Math.min(colorMaximum, Math.max(2, colorCount));
@@ -268,9 +271,13 @@ function colorConfiguration() {
     no_semitransparent: $('no-semitransparent').checked };
 }
 function configuration() {
+  const fixedSize = $('target-size-enabled').checked;
   return { ...defaults, scale: 1, sampling: $('sampling').value, alpha_mode: $('alpha-mode').value,
-    local_warp: $('local-warp').value, min_pixel_size: Number($('min-size').value), max_pixel_size: Number($('max-size').value),
-    square: $('square').checked, photo_mode: $('photo-mode').checked ? 'auto' : 'off', ...colorConfiguration() };
+    local_warp: $('local-warp').value,
+    target_size: fixedSize ? [$('target-width').valueAsNumber, $('target-height').valueAsNumber] : null,
+    min_pixel_size: fixedSize ? defaults.min_pixel_size : Number($('min-size').value),
+    max_pixel_size: fixedSize ? defaults.max_pixel_size : Number($('max-size').value),
+    square: !fixedSize && $('square').checked, photo_mode: $('photo-mode').checked ? 'auto' : 'off', ...colorConfiguration() };
 }
 function coreConfiguration() {
   const { colors, palette, color_mode, no_semitransparent, ...core } = configuration(); return core;
@@ -286,6 +293,9 @@ function reset() {
   $('use-palette').checked = defaults.palette !== null;
   $('palette').value = defaults.palette || 'DMC436'; $('color-mode').value = defaults.color_mode;
   $('square').checked = defaults.square; $('photo-mode').checked = defaults.photo_mode === 'auto'; $('scale').value = String(defaults.scale);
+  $('target-size-enabled').checked = defaults.target_size != null;
+  $('target-width').value = String(defaults.target_size?.[0] ?? 128);
+  $('target-height').value = String(defaults.target_size?.[1] ?? 128);
   visibility();
   if (before !== JSON.stringify(coreConfiguration()) || wasDebug !== $('debug').checked) invalidate();
   else scheduleColors();
@@ -406,7 +416,7 @@ function getWorker() {
 }
 $('settings').onsubmit = async event => {
   event.preventDefault(); if (!file || busy || !defaults) return;
-  if (!$('color-settings').reportValidity()) return;
+  if (!$('settings').reportValidity() || !$('color-settings').reportValidity()) return;
   const id = ++generation;
   invalidate(); setBusy(true, 'process'); setStatus('reading', 'busy');
   try {

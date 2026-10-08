@@ -537,8 +537,8 @@ def test_local_walk_recovers_bounded_drift_without_crossing():
     assert np.all(np.diff(grid.x_lines)>0)
 
 
-@pytest.mark.parametrize("removed", [{"pixel_size": 8}, {"target_size": (12, 10)}])
-def test_manual_grid_options_are_removed_from_api(removed):
+@pytest.mark.parametrize("removed", [{"pixel_size": 8}])
+def test_manual_pixel_spacing_is_removed_from_api(removed):
     with pytest.raises(TypeError, match="unexpected keyword"):
         Config(**removed)
 
@@ -1092,9 +1092,10 @@ def test_semitransparent_alpha_and_straight_color_survive_clean_recovery():
     assert np.abs(out[visible, :3].astype(int) - data[visible, :3]).max() <= 2
 
 
-def test_removed_target_size_is_rejected():
-    with pytest.raises(TypeError, match="target_size"):
-        pixelize(Image.new("RGB", (80, 60)), Config(target_size=(8, 8)))
+def test_fixed_target_size_works_without_grid_evidence():
+    result = pixelize(Image.new("RGB", (80, 60), "navy"), Config(target_size=(8, 8)))
+    assert result.image.size == (8, 8)
+    np.testing.assert_array_equal(np.asarray(result.image), np.full((8, 8, 3), [0, 0, 128]))
 
 
 # IO SCORING
@@ -1216,7 +1217,7 @@ def test_cli_explicit_debug_and_verbose(tmp_path):
     assert completed.stderr.strip()
 
 
-def test_cli_rejects_removed_grid_constraints(tmp_path):
+def test_cli_rejects_removed_pixel_spacing_with_target_size(tmp_path):
     source = tmp_path / "input.png"
     make_input(source)
     completed = invoke("-i", source, "-o", tmp_path / "out.png", "--pixel-size", "8",
@@ -1823,3 +1824,147 @@ def test_cli_ordinary_mode_and_generated_grid_diagnostics(tmp_path):
         assert output.size == pixelize(source, Config(photo_mode='off')).image.size
     with pytest.raises(ValueError, match='photo_mode'):
         Config(photo_mode='force')
+
+
+# FIXED OUTPUT SIZE
+FIXED_X_CUTS = np.array([0, 12, 26, 39, 49, 58, 69, 83, 96])
+FIXED_Y_CUTS = np.array([0, 14, 26, 36, 47, 58, 72])
+
+
+def fixed_size_tile_board(transparent=False, hidden_rgb=(0, 0, 0)):
+    """Colored tiles with bounded drift and useful edges in both directions."""
+    palette = np.array([[24, 40, 64], [238, 190, 58], [45, 155, 188], [238, 103, 80]], np.uint8)
+    data = np.zeros((72, 96, 4), np.uint8)
+    for row in range(6):
+        for column in range(8):
+            clear = transparent and (column in (0, 7) or row in (0, 5))
+            color = (*hidden_rgb, 0) if clear else (*palette[(column + 2 * row) % 4], 255)
+            data[FIXED_Y_CUTS[row]:FIXED_Y_CUTS[row + 1],
+                 FIXED_X_CUTS[column]:FIXED_X_CUTS[column + 1]] = color
+    image = Image.fromarray(data)
+    return image if transparent else image.convert('RGB')
+
+
+@pytest.mark.parametrize('target_size', [(8, 6), (7, 5), (5, 9), (1, 5), (7, 1), (1, 1), (95, 71), (96, 72)])
+@pytest.mark.parametrize('local_warp', ['auto', 'off'])
+def test_fixed_size_covers_source_exactly_and_is_deterministic(target_size, local_warp):
+    image = fixed_size_tile_board()
+    config = Config(target_size=target_size, local_warp=local_warp)
+    result = pixelize(image, config)
+    assert result.image.size == target_size
+    assert result.grid['output_size'] == list(target_size)
+    for cuts, count, length in ((result.grid['x_lines'], target_size[0], image.width),
+                                (result.grid['y_lines'], target_size[1], image.height)):
+        assert len(cuts) == count + 1
+        assert cuts[0] == 0 and cuts[-1] == length
+        assert all(isinstance(line, int) for line in cuts)
+        assert min(np.diff(cuts)) >= 1
+    repeated = pixelize(image, config)
+    np.testing.assert_array_equal(repeated.image, result.image)
+    assert repeated.grid == result.grid
+
+
+@pytest.mark.parametrize('local_warp', ['auto', 'off'])
+def test_fixed_size_near_native_odd_dimensions_keep_nonempty_cells(local_warp):
+    image = np.zeros((19, 17, 3), np.uint8)
+    image[:] = [238, 190, 58]
+    image[:, np.arange(17) // 3 % 2 == 0] = [45, 155, 188]
+    image[:, [2, 14]] = [18, 24, 40]
+    image[[3, 15]] = [18, 24, 40]
+    result = pixelize(Image.fromarray(image), Config(target_size=(16, 18), local_warp=local_warp))
+    assert result.image.size == (16, 18)
+    for cuts, count, length in ((result.grid['x_lines'], 16, 17), (result.grid['y_lines'], 18, 19)):
+        assert len(cuts) == count + 1
+        assert cuts[0] == 0 and cuts[-1] == length
+        assert min(np.diff(cuts)) >= 1
+
+
+def test_fixed_size_adapts_to_boundaries_instead_of_uniform_resizing():
+    result = pixelize(fixed_size_tile_board(), Config(target_size=(8, 6)))
+    uniform_error = abs(FIXED_X_CUTS - np.arange(9) * 12).sum()
+    uniform_error += abs(FIXED_Y_CUTS - np.arange(7) * 12).sum()
+    adaptive_error = abs(np.array(result.grid['x_lines']) - FIXED_X_CUTS).sum()
+    adaptive_error += abs(np.array(result.grid['y_lines']) - FIXED_Y_CUTS).sum()
+    assert adaptive_error < uniform_error / 2, (adaptive_error, uniform_error)
+    assert result.grid['x_lines'] != list(np.arange(9) * 12)
+
+
+def test_fixed_size_overrides_automatic_square_and_spacing_preferences():
+    image = fixed_size_tile_board()
+    plain = pixelize(image, Config(target_size=(5, 9)))
+    constrained = pixelize(image, Config(target_size=(5, 9), square=True,
+                                        min_pixel_size=32, max_pixel_size=64))
+    assert constrained.image.size == (5, 9)
+    assert constrained.grid == plain.grid
+    np.testing.assert_array_equal(constrained.image, plain.image)
+
+
+@pytest.mark.parametrize('sampling', ['robust', 'center', 'median'])
+def test_fixed_size_reuses_sampling_then_independent_color_processing(sampling):
+    image = fixed_size_tile_board(transparent=True)
+    plain = pixelize(image, Config(target_size=(8, 6), sampling=sampling))
+    cells = recover_cells(load_image(image).rgba, plain.grid['x_lines'], plain.grid['y_lines'], sampling)
+    np.testing.assert_array_equal(plain.native_image, to_pil(cells.rgba, True))
+    options = dict(colors=2, palette='MARD24', no_semitransparent=True)
+    colored = pixelize(image, Config(target_size=(8, 6), sampling=sampling, **options))
+    assert colored.grid == plain.grid
+    np.testing.assert_array_equal(colored.native_image, plain.native_image)
+    np.testing.assert_array_equal(colored.image, process_colors(plain.native_image, **options).image)
+
+
+def test_fixed_size_ignores_hidden_rgb_and_preserves_transparent_regions():
+    first = pixelize(fixed_size_tile_board(True, (255, 0, 0)), Config(target_size=(8, 6)))
+    second = pixelize(fixed_size_tile_board(True, (0, 255, 255)), Config(target_size=(8, 6)))
+    assert first.grid == second.grid
+    np.testing.assert_array_equal(first.image, second.image)
+    alpha = np.asarray(first.image)[..., 3]
+    assert alpha[0, 0] == 0 and alpha[3, 4] == 255
+
+
+def test_fixed_size_none_leaves_automatic_behavior_unchanged():
+    image = fixed_size_tile_board()
+    automatic = pixelize(image)
+    disabled = pixelize(image, Config(target_size=None))
+    np.testing.assert_array_equal(disabled.image, automatic.image)
+    np.testing.assert_array_equal(disabled.native_image, automatic.native_image)
+    assert disabled.grid == automatic.grid
+    assert disabled.confidence == automatic.confidence
+    assert disabled.diagnostics == automatic.diagnostics
+
+
+@pytest.mark.parametrize('target_size', [(), (4,), (4, 5, 6), (0, 4), (-1, 4), (2.5, 4),
+    (True, 4), ('4', 5), '8x6', (float('nan'), 4), (float('inf'), 4), (4097, 1), (1001, 1000)])
+def test_fixed_size_rejects_invalid_counts(target_size):
+    with pytest.raises(ValueError, match='target_size'):
+        Config(target_size=target_size)
+
+
+@pytest.mark.parametrize('target_size', [(97, 6), (8, 73)])
+def test_fixed_size_rejects_magnification(target_size):
+    with pytest.raises(ValueError, match='target|source|input'):
+        pixelize(fixed_size_tile_board(), Config(target_size=target_size))
+
+
+def test_cli_fixed_size_and_nearest_neighbor_export_scale(tmp_path):
+    source = tmp_path / 'tiles.png'
+    fixed_size_tile_board().save(source)
+    output = tmp_path / 'result.png'
+    completed = invoke('-i', source, '-o', output, '--target-size', '7x5', '--scale', '3', cwd=tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert {path.name for path in tmp_path.iterdir()} == {'tiles.png', 'result.png'}
+    native = pixelize(source, Config(target_size=(7, 5), scale=3))
+    assert native.image.size == (7, 5)
+    with Image.open(output) as saved:
+        assert saved.size == (21, 15)
+        np.testing.assert_array_equal(saved, native.image.resize((21, 15), Image.Resampling.NEAREST))
+
+
+@pytest.mark.parametrize('size', ['8', '0x5', '7x0', '4.5x6', '2x3x4', '97x6'])
+def test_cli_fixed_size_validation_has_no_partial_output(tmp_path, size):
+    source = tmp_path / 'tiles.png'
+    fixed_size_tile_board().save(source)
+    output = tmp_path / 'result.png'
+    completed = invoke('-i', source, '-o', output, '--target-size', size, cwd=tmp_path)
+    assert completed.returncode != 0
+    assert 'Traceback' not in completed.stderr
+    assert not output.exists()

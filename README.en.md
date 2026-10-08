@@ -39,6 +39,10 @@ The lightweight edition uses the system WebView: Windows prompts to install miss
 3. **Adjust colors if needed**: colors are unlimited by default. You can limit the color count or choose a palette. Color adjustments happen after restoration and do not change the recovered grid.
 4. **Download the PNG**: leave the export scale at its default of **1** to save the native low-resolution image. Choose **2–16** for nearest-neighbor enlargement, without regenerating the result.
 
+To specify the resolution, enable **Fixed size** below local grid adjustment, enter **X (width) × Y (height)**, and generate again. The algorithm fixes the number of columns and rows, adjusts cuts toward source edges, and uses the existing cell sampler. It does not resize an automatically generated result. Turning local adjustment off keeps global phase fitting only.
+
+Fixed mode covers the entire source and overrides spacing search and square-grid options. A different aspect ratio changes the output proportions without cropping. Each axis must be 1–4096 and no larger than the corresponding source dimension, with at most one million output pixels. Use export scale for enlargement. This is a user-constrained grid, not proof of a unique original grid.
+
 **No semi-transparent pixels** is an optional color-processing setting, disabled by default. Pixels below 75% opacity (alpha < 192) become fully transparent; the rest become opaque, retaining their RGB colors and grid positions. Toggle it after generation; turning it off restores the original recovered alpha. Use `--no-semitransparent` in the Python CLI, or `Config(no_semitransparent=True)` / `process_colors(image, no_semitransparent=True)` in the API.
 
 ![lastTour example: 1536×1024 original on the left, 331×219 RealPixelArt result on the right](docs/images/lastTour-tutorial.png)
@@ -59,6 +63,8 @@ python realpixelart.py -i input/lastTour.png --colors 32 --scale 4 --debug
 ```
 
 This example limits the result to at most 32 colors and enlarges it by a factor of 4. Use `--help` to see all options. The algorithm's only runtime dependencies are NumPy and Pillow.
+
+For a fixed output size, use `python realpixelart.py -i input/lastTour.png --target-size 128x96`, or `pixelize(image, Config(target_size=(128, 96)))` in Python. Omitting it retains automatic detection.
 
 ## Algorithm
 
